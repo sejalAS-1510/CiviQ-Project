@@ -1,16 +1,19 @@
 const Complaint = require("../models/Complaint");
+const technicianAssigner = require("../services/technicianAssigner");
+const emailService = require("../services/emailService");
 
 // @desc    Create a new complaint
 // @route   POST /api/complaints
 // @access  Private
 exports.createComplaint = async (req, res) => {
   try {
-    const { description, location, category } = req.body;
+    const { description, location, category, priority, autoAssign } = req.body;
 
     const complaintData = {
       description,
       location,
       category: category || "General",
+      priority: priority || "Medium",
       userId: req.user._id, // Associate with logged-in user
     };
 
@@ -22,11 +25,46 @@ exports.createComplaint = async (req, res) => {
     const complaint = new Complaint(complaintData);
     await complaint.save();
 
-    res.status(201).json({
+    // Auto-assign technician if requested
+    let response = {
       success: true,
       message: "Complaint registered successfully",
       data: complaint,
-    });
+    };
+
+    if (autoAssign === true || autoAssign === "true") {
+      try {
+        const assignedTechnician =
+          await technicianAssigner.assignTechnician(complaint);
+        complaint.technician = assignedTechnician._id;
+        await complaint.save();
+
+        // Populate technician details in response
+        const updatedComplaint = await Complaint.findById(complaint._id)
+          .populate("userId", "name email")
+          .populate("technician", "name email specialization");
+
+        response.data = updatedComplaint;
+        response.message = "Complaint registered and assigned to technician";
+
+        // Send assignment email notification (non-blocking)
+        emailService
+          .sendAssignmentNotification(updatedComplaint)
+          .catch((err) =>
+            console.error("Failed to send assignment email:", err.message),
+          );
+      } catch (assignmentError) {
+        console.warn(
+          "Auto-assignment failed, complaint created without assignment:",
+          assignmentError.message,
+        );
+        // Don't fail the entire request if assignment fails
+        response.warning =
+          "Complaint created but auto-assignment failed. Admin can assign manually.";
+      }
+    }
+
+    res.status(201).json(response);
   } catch (error) {
     console.error("Create complaint error:", error);
 
@@ -135,7 +173,9 @@ exports.getComplaint = async (req, res) => {
 // @access  Private
 exports.updateComplaint = async (req, res) => {
   try {
-    const complaint = await Complaint.findById(req.params.id);
+    const complaint = await Complaint.findById(req.params.id)
+      .populate("userId", "name email")
+      .populate("technician", "name email specialization");
 
     if (!complaint) {
       return res.status(404).json({
@@ -147,13 +187,16 @@ exports.updateComplaint = async (req, res) => {
     // Check permissions
     if (
       req.user.role === "user" &&
-      complaint.userId.toString() !== req.user._id.toString()
+      complaint.userId._id.toString() !== req.user._id.toString()
     ) {
       return res.status(403).json({
         success: false,
         message: "Not authorized to update this complaint",
       });
     }
+
+    // Track old status for email notifications
+    const oldStatus = complaint.status;
 
     // Update allowed fields based on role
     const allowedUpdates = {};
@@ -177,6 +220,34 @@ exports.updateComplaint = async (req, res) => {
     )
       .populate("userId", "name email")
       .populate("technician", "name email specialization");
+
+    // Send notifications based on what was updated
+    if (updates.status && updates.status !== oldStatus) {
+      // Status changed - send status update email
+      const statusMessage =
+        updates.statusMessage ||
+        `Issue status has been updated to ${updates.status}`;
+
+      if (updates.status === "Resolved") {
+        // Send resolution email
+        const resolutionDetails =
+          updates.resolutionDetails ||
+          "Thank you for reporting this issue. Our team has successfully resolved it.";
+
+        emailService
+          .sendResolutionNotification(updatedComplaint, resolutionDetails)
+          .catch((err) =>
+            console.error("Failed to send resolution email:", err.message),
+          );
+      } else {
+        // Send status update email
+        emailService
+          .sendStatusUpdateNotification(updatedComplaint, statusMessage)
+          .catch((err) =>
+            console.error("Failed to send status update email:", err.message),
+          );
+      }
+    }
 
     res.json({
       success: true,
@@ -232,9 +303,11 @@ exports.deleteComplaint = async (req, res) => {
 // @desc    Assign technician to complaint
 // @route   PUT /api/complaints/:id/assign
 // @access  Private/Admin
+// @param   technicianId (optional) - If provided, manually assign. If not, use AI assignment
+// @param   useAI (optional) - Force AI assignment even if technicianId provided
 exports.assignTechnician = async (req, res) => {
   try {
-    const { technicianId } = req.body;
+    const { technicianId, useAI } = req.body;
 
     const complaint = await Complaint.findById(req.params.id);
     if (!complaint) {
@@ -252,24 +325,91 @@ exports.assignTechnician = async (req, res) => {
       });
     }
 
-    complaint.technician = technicianId;
+    let assignedTechnician;
+
+    // If AI assignment requested or no technicianId provided, use AI logic
+    if (useAI === true || useAI === "true" || !technicianId) {
+      try {
+        assignedTechnician =
+          await technicianAssigner.assignTechnician(complaint);
+        complaint.technician = assignedTechnician._id;
+
+        console.log(
+          `[AI Assignment] Assigned complaint ${complaint._id} to ${assignedTechnician.name}`,
+        );
+      } catch (assignmentError) {
+        return res.status(400).json({
+          success: false,
+          message: `AI assignment failed: ${assignmentError.message}`,
+        });
+      }
+    } else {
+      // Manual assignment
+      assignedTechnician = await technicianAssigner.manualAssign(
+        complaint._id,
+        technicianId,
+      );
+    }
+
     complaint.status = "In Progress";
     await complaint.save();
 
     const updatedComplaint = await Complaint.findById(req.params.id)
-      .populate("userId", "name email")
-      .populate("technician", "name email specialization");
+      .populate("userId", "name email phone")
+      .populate("technician", "name email phone specialization");
+
+    // Send assignment notification email to user and technician (non-blocking)
+    emailService
+      .sendAssignmentNotification(updatedComplaint)
+      .catch((err) =>
+        console.error("Failed to send assignment email:", err.message),
+      );
 
     res.json({
       success: true,
       message: "Technician assigned successfully",
       data: updatedComplaint,
+      assignedTechnician: {
+        id: assignedTechnician._id,
+        name: assignedTechnician.name,
+        email: assignedTechnician.email,
+        specialization: assignedTechnician.specialization,
+      },
     });
   } catch (error) {
     console.error("Assign technician error:", error);
     res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "Server error during assignment",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Get technician stats and availability
+// @route   GET /api/complaints/technicians/stats
+// @access  Private/Admin
+exports.getTechnicianStats = async (req, res) => {
+  try {
+    // Check permission
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to view technician stats",
+      });
+    }
+
+    const stats = await technicianAssigner.getTechnicianStats();
+
+    res.json({
+      success: true,
+      data: stats,
+    });
+  } catch (error) {
+    console.error("Get technician stats error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error fetching technician stats",
     });
   }
 };

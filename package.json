@@ -8,5 +8,10 @@
     "install:backend": "cd backend && npm install",
     "dev": "node start-dev.js",
     "test": "echo \"Run 'npm run dev' to start both frontend and backend servers\""
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "google-auth-library": "^10.6.2",
+    "googleapis": "^171.4.0"
   }
 }

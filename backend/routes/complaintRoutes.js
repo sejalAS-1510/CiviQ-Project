@@ -8,6 +8,7 @@ const {
   updateComplaint,
   deleteComplaint,
   assignTechnician,
+  getTechnicianStats,
 } = require("../controllers/complaintController");
 
 const { protect, admin } = require("../middleware/authMiddleware");
@@ -68,5 +69,8 @@ router
   .delete(admin, deleteComplaint);
 
 router.put("/:id/assign", admin, assignTechnician);
+
+// Technician stats endpoint
+router.get("/technicians/stats", admin, getTechnicianStats);
 
 module.exports = router;
