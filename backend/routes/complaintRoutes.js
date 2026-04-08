@@ -62,6 +62,9 @@ router
   .get(getComplaints)
   .post(upload.single("image"), createComplaint);
 
+// Place specific path before /:id to avoid route shadowing.
+router.get("/technicians/stats", admin, getTechnicianStats);
+
 router
   .route("/:id")
   .get(getComplaint)
@@ -69,8 +72,5 @@ router
   .delete(admin, deleteComplaint);
 
 router.put("/:id/assign", admin, assignTechnician);
-
-// Technician stats endpoint
-router.get("/technicians/stats", admin, getTechnicianStats);
 
 module.exports = router;

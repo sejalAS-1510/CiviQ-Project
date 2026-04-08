@@ -6,7 +6,9 @@
     "start": "cd backend && npm start",
     "start:backend": "cd backend && npm start",
     "install:backend": "cd backend && npm install",
+    "dev:single": "node start-single.js",
     "dev": "node start-dev.js",
+    "audit:features": "node scripts/feature-audit.js",
     "test": "echo \"Run 'npm run dev' to start both frontend and backend servers\""
   },
   "dependencies": {

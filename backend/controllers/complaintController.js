@@ -1,6 +1,36 @@
 const Complaint = require("../models/Complaint");
 const technicianAssigner = require("../services/technicianAssigner");
 const emailService = require("../services/emailService");
+const {
+  generateComplaintReportAttachment,
+} = require("../services/excelReportService");
+
+function triggerNotification(promise, label) {
+  promise
+    .then((result) => {
+      if (!result?.success) {
+        console.warn(`[notification] ${label} failed`, result);
+      } else if (result?.partial) {
+        console.warn(`[notification] ${label} partial delivery`, result);
+      }
+    })
+    .catch((error) => {
+      console.error(`[notification] ${label} crashed`, error.message);
+    });
+}
+
+async function buildReportAttachment(complaint, meta) {
+  try {
+    return await generateComplaintReportAttachment(complaint, meta);
+  } catch (error) {
+    console.warn("[report] Failed to generate excel report", {
+      complaintId: complaint?._id,
+      eventType: meta?.eventType,
+      error: error.message,
+    });
+    return null;
+  }
+}
 
 // @desc    Create a new complaint
 // @route   POST /api/complaints
@@ -48,11 +78,18 @@ exports.createComplaint = async (req, res) => {
         response.message = "Complaint registered and assigned to technician";
 
         // Send assignment email notification (non-blocking)
-        emailService
-          .sendAssignmentNotification(updatedComplaint)
-          .catch((err) =>
-            console.error("Failed to send assignment email:", err.message),
-          );
+        triggerNotification(
+          (async () => {
+            const attachment = await buildReportAttachment(updatedComplaint, {
+              eventType: "assignment",
+            });
+            return emailService.sendAssignmentNotification(
+              updatedComplaint,
+              attachment,
+            );
+          })(),
+          `assignment-auto-${updatedComplaint._id}`,
+        );
       } catch (assignmentError) {
         console.warn(
           "Auto-assignment failed, complaint created without assignment:",
@@ -216,7 +253,7 @@ exports.updateComplaint = async (req, res) => {
     const updatedComplaint = await Complaint.findByIdAndUpdate(
       req.params.id,
       allowedUpdates,
-      { new: true },
+      { returnDocument: "after" },
     )
       .populate("userId", "name email")
       .populate("technician", "name email specialization");
@@ -234,18 +271,37 @@ exports.updateComplaint = async (req, res) => {
           updates.resolutionDetails ||
           "Thank you for reporting this issue. Our team has successfully resolved it.";
 
-        emailService
-          .sendResolutionNotification(updatedComplaint, resolutionDetails)
-          .catch((err) =>
-            console.error("Failed to send resolution email:", err.message),
-          );
+        triggerNotification(
+          (async () => {
+            const attachment = await buildReportAttachment(updatedComplaint, {
+              eventType: "resolution",
+              statusMessage,
+              resolutionDetails,
+            });
+            return emailService.sendResolutionNotification(
+              updatedComplaint,
+              resolutionDetails,
+              attachment,
+            );
+          })(),
+          `resolution-${updatedComplaint._id}`,
+        );
       } else {
         // Send status update email
-        emailService
-          .sendStatusUpdateNotification(updatedComplaint, statusMessage)
-          .catch((err) =>
-            console.error("Failed to send status update email:", err.message),
-          );
+        triggerNotification(
+          (async () => {
+            const attachment = await buildReportAttachment(updatedComplaint, {
+              eventType: "status-update",
+              statusMessage,
+            });
+            return emailService.sendStatusUpdateNotification(
+              updatedComplaint,
+              statusMessage,
+              attachment,
+            );
+          })(),
+          `status-${updatedComplaint._id}`,
+        );
       }
     }
 
@@ -345,10 +401,12 @@ exports.assignTechnician = async (req, res) => {
       }
     } else {
       // Manual assignment
-      assignedTechnician = await technicianAssigner.manualAssign(
+      const manualAssignedComplaint = await technicianAssigner.manualAssign(
         complaint._id,
         technicianId,
       );
+      assignedTechnician = manualAssignedComplaint.technician;
+      complaint.technician = assignedTechnician._id;
     }
 
     complaint.status = "In Progress";
@@ -359,11 +417,18 @@ exports.assignTechnician = async (req, res) => {
       .populate("technician", "name email phone specialization");
 
     // Send assignment notification email to user and technician (non-blocking)
-    emailService
-      .sendAssignmentNotification(updatedComplaint)
-      .catch((err) =>
-        console.error("Failed to send assignment email:", err.message),
-      );
+    triggerNotification(
+      (async () => {
+        const attachment = await buildReportAttachment(updatedComplaint, {
+          eventType: "assignment",
+        });
+        return emailService.sendAssignmentNotification(
+          updatedComplaint,
+          attachment,
+        );
+      })(),
+      `assignment-manual-${updatedComplaint._id}`,
+    );
 
     res.json({
       success: true,

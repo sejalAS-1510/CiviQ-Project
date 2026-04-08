@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
+const emailService = require("../services/emailService");
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -15,6 +16,13 @@ exports.register = async (req, res) => {
   try {
     const { name, email, password, role, phone, address, specialization } =
       req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email, and password are required",
+      });
+    }
 
     // Check if user exists
     const userExists = await User.findOne({ email });
@@ -37,9 +45,16 @@ exports.register = async (req, res) => {
     });
 
     if (user) {
+      // Notify user after successful signup (non-blocking).
+      emailService
+        .sendSignupNotification(user)
+        .catch((err) =>
+          console.error("Failed to send signup notification:", err.message),
+        );
+
       res.status(201).json({
         success: true,
-        message: "User registered successfully",
+        message: "Signup successful. Please login to continue.",
         data: {
           _id: user._id,
           name: user.name,
@@ -48,7 +63,6 @@ exports.register = async (req, res) => {
           phone: user.phone,
           address: user.address,
           specialization: user.specialization,
-          token: generateToken(user._id),
         },
       });
     } else {
@@ -73,13 +87,25 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
+    }
+
     // Check for user email
     const user = await User.findOne({ email }).select("+password");
 
     if (user && (await user.matchPassword(password))) {
-      // Update last login (temporarily disabled to avoid save issues)
-      // user.lastLogin = new Date();
-      // await user.save();
+      await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
+
+      // Login alert email (non-blocking)
+      emailService
+        .sendLoginNotification(user)
+        .catch((err) =>
+          console.error("Failed to send login notification:", err.message),
+        );
 
       res.json({
         success: true,

@@ -1,6 +1,9 @@
 const express = require("express");
 const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
+const PORT = Number(process.env.PORT || 5000);
 
 const connectDB = require("./config/db");
 
@@ -8,6 +11,8 @@ const complaintRoutes = require("./routes/complaintRoutes");
 const userRoutes = require("./routes/userRoutes");
 
 const app = express();
+const frontendDistPath = path.join(__dirname, "..", "frontend", "dist");
+const frontendIndexPath = path.join(frontendDistPath, "index.html");
 
 // CORS configuration for development
 // Allow any localhost/127.0.0.1 origin on any port and allow file:// (no origin)
@@ -29,10 +34,8 @@ app.use(express.json());
 
 // Configure multer for file uploads
 const multer = require("multer");
-const path = require("path");
 
 // Create uploads directory if it doesn't exist
-const fs = require("fs");
 const uploadsDir = path.join(__dirname, "uploads", "issue-images");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -70,6 +73,15 @@ const upload = multer({
 // Make uploads directory static
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+// Serve the built frontend from the same origin when available
+if (fs.existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+} else {
+  console.warn(
+    "[server] frontend/dist not found. Run the frontend build before using single-port mode.",
+  );
+}
+
 // connect database
 connectDB();
 
@@ -88,6 +100,14 @@ app.post("/test", (req, res) => {
 app.use("/api/users", userRoutes);
 app.use("/api/complaints", complaintRoutes);
 
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
+// Single-URL fallback for the frontend SPA
+app.get(/^\/(?!api\/).*/, (req, res, next) => {
+  if (fs.existsSync(frontendIndexPath)) {
+    return res.sendFile(frontendIndexPath);
+  }
+  return next();
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });

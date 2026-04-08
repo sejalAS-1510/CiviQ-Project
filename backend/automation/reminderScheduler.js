@@ -3,6 +3,7 @@ require("dotenv").config();
 
 const connectDB = require("../config/db");
 const Complaint = require("../models/Complaint");
+require("../models/User");
 const emailService = require("../services/emailService");
 
 let reminderJob = null;
@@ -39,10 +40,26 @@ async function sendPendingIssueReminders() {
       technician,
       complaints: pendingComplaints,
     } of byTechnician.values()) {
-      await emailService.sendTechnicianReminder(technician, pendingComplaints);
-      console.log(
-        `[automation] Reminder sent to ${technician.email} for ${pendingComplaints.length} issue(s).`,
+      const result = await emailService.sendTechnicianReminder(
+        technician,
+        pendingComplaints,
       );
+
+      if (result?.success) {
+        console.log(
+          `[automation] Reminder sent to ${technician.email} for ${pendingComplaints.length} issue(s).`,
+        );
+      } else if (result?.partial) {
+        console.warn(
+          `[automation] Reminder partially sent to ${technician.email}.`,
+          result,
+        );
+      } else {
+        console.warn(
+          `[automation] Reminder failed for ${technician.email}.`,
+          result,
+        );
+      }
     }
   } catch (error) {
     console.error("[automation] Reminder cycle failed:", error.message);

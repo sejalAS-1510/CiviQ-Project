@@ -1,85 +1,362 @@
-/**
- * Email Service
- * Handles all email notifications for the CiviQ system
- * Uses Nodemailer with Gmail SMTP
- *
- * 🔐 SECURITY WARNING:
- * App passwords are less secure than modern OAuth2. This approach is suitable for
- * development/small deployments only. For production, consider:
- * - OAuth2 with service accounts (recommended)
- * - SendGrid/Mailgun/AWS SES (third-party email services)
- *
- * See EMAIL_SERVICE_README.md for detailed security guidelines and production recommendations.
- */
-
 const nodemailer = require("nodemailer");
+const sendgridMail = require("@sendgrid/mail");
 
 let transporter = null;
+let transporterVerified = false;
+let emailServiceDisabledReason = null;
+let emailConfigWarned = false;
 
-/**
- * Initialize email transporter
- * Reads Gmail credentials from environment variables
- * 
- * ⚠️ IMPORTANT: Credentials must be stored in .env, NEVER hardcoded
- * 
- * Environment variables needed:
- * - GMAIL_USER: Gmail address for sending emails
- * - GMAIL_APP_PASSWORD: Gmail app-specific password (not regular password)
- *   * Requires 2-Step Verification enabled on Google Account
- *   * Generate at: https://myaccount.google.com/apppasswords
- *   * Use 16-char password WITHOUT spaces
- * 
- * Best Practices:
- * ✅ Store credentials in .env file
- * ✅ Add .env to .gitignore
- * ✅ Use HTTPS in production
- * ✅ Rotate passwords periodically
- * ✅ Monitor email logs
- * 
- * For production deployment, see README for OAuth2 setup.
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailPassword = process.env.GMAIL_APP_PASSWORD;
+const DEFAULT_FRONTEND_URL =
+  process.env.FRONTEND_URL || "http://localhost:8080";
+const EMAIL_RETRY_ATTEMPTS = Number(process.env.EMAIL_RETRY_ATTEMPTS || 3);
+const EMAIL_RETRY_DELAY_MS = Number(process.env.EMAIL_RETRY_DELAY_MS || 1500);
+const EMAIL_SEND_TIMEOUT_MS = Number(
+  process.env.EMAIL_SEND_TIMEOUT_MS || 10000,
+);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function toIssueId(id) {
+  return String(id || "")
+    .slice(-8)
+    .toUpperCase();
+}
+
+function getStatusColor(status) {
+  return (
+    {
+      Pending: "#f59e0b",
+      "In Progress": "#2563eb",
+      Resolved: "#16a34a",
+      Closed: "#6b7280",
+    }[status] || "#2563eb"
+  );
+}
+
+function isRetryableError(error) {
+  const retryableCodes = new Set([
+    "ETIMEDOUT",
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "EAI_AGAIN",
+    "ESOCKET",
+    "EMESSAGE",
+  ]);
+
+  const responseCode = Number(error?.responseCode || 0);
+  const smtpRetryable = [421, 429, 450, 451, 452].includes(responseCode);
+
+  return retryableCodes.has(error?.code) || smtpRetryable;
+}
+
+function resolveEmailProvider() {
+  const configuredProvider = String(process.env.EMAIL_PROVIDER || "")
+    .trim()
+    .toLowerCase();
+
+  if (configuredProvider === "gmail" || configuredProvider === "sendgrid") {
+    return configuredProvider;
+  }
+
+  if (process.env.SENDGRID_API_KEY) {
+    return "sendgrid";
+  }
+
+  return "gmail";
+}
+
+function getFromAddress() {
+  const provider = resolveEmailProvider();
+  const fromEmail =
+    process.env.SENDGRID_FROM_EMAIL ||
+    process.env.GMAIL_USER ||
+    process.env.EMAIL_USER ||
+    "no-reply@localhost";
+
+  if (
+    provider === "sendgrid" &&
+    process.env.SENDGRID_FROM_NAME &&
+    fromEmail &&
+    !/[<>]/.test(fromEmail)
+  ) {
+    return {
+      email: fromEmail,
+      name: process.env.SENDGRID_FROM_NAME,
+    };
+  }
+
+  return process.env.EMAIL_FROM || fromEmail;
+}
+
+function normalizeAttachmentForSendGrid(attachment) {
+  if (!attachment || !attachment.filename) return null;
+
+  let content = attachment.content;
+  if (Buffer.isBuffer(content)) {
+    content = content.toString("base64");
+  } else if (typeof content === "string") {
+    content = Buffer.from(content).toString("base64");
+  } else {
+    return null;
+  }
+
+  return {
+    content,
+    filename: attachment.filename,
+    type:
+      attachment.contentType || attachment.type || "application/octet-stream",
+    disposition: attachment.disposition || "attachment",
+    content_id: attachment.cid,
+  };
+}
+
+function buildSendGridMessage(mailOptions) {
+  const attachments = normalizeAttachments(mailOptions.attachments)
+    .map(normalizeAttachmentForSendGrid)
+    .filter(Boolean);
+
+  return {
+    from: getFromAddress(),
+    to: mailOptions.to,
+    subject: mailOptions.subject,
+    html: mailOptions.html,
+    attachments,
+  };
+}
+
+function createSendGridClient() {
+  const apiKey = process.env.SENDGRID_API_KEY;
+
+  if (!apiKey) {
+    if (!emailConfigWarned) {
+      console.warn(
+        "[email] SendGrid not configured. Set SENDGRID_API_KEY in backend/.env",
+      );
+      emailConfigWarned = true;
+    }
+    emailServiceDisabledReason = "email-not-configured";
+    return null;
+  }
+
+  sendgridMail.setApiKey(apiKey);
+
+  return {
+    provider: "sendgrid",
+    verify: async () => true,
+    sendMail: async (mailOptions) => {
+      const [response] = await sendgridMail.send(
+        buildSendGridMessage(mailOptions),
+      );
+      return {
+        accepted: [mailOptions.to],
+        rejected: [],
+        messageId:
+          response?.headers?.["x-message-id"] ||
+          response?.headers?.["x-sg-message-id"] ||
+          response?.headers?.["X-Message-Id"],
+      };
+    },
+  };
+}
+
+async function withRetry(taskFn, options) {
+  const { attempts, delayMs, label } = options;
+  let lastError;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await taskFn();
+    } catch (error) {
+      lastError = error;
+      const canRetry = attempt < attempts && isRetryableError(error);
+
+      if (!canRetry) {
+        throw error;
+      }
+
+      console.warn(
+        `[email] ${label} failed (attempt ${attempt}/${attempts}): ${error.message}. Retrying...`,
+      );
+      await sleep(delayMs * attempt);
+    }
+  }
+
+  throw lastError;
+}
+
+function initializeTransporter() {
+  if (transporter) return transporter;
+  if (emailServiceDisabledReason) return null;
+
+  const emailProvider = resolveEmailProvider();
+
+  if (emailProvider === "sendgrid") {
+    transporter = createSendGridClient();
+    return transporter;
+  }
+
+  const gmailUser = process.env.GMAIL_USER || process.env.EMAIL_USER;
+  const gmailPassword =
+    process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASS;
 
   if (!gmailUser || !gmailPassword) {
-    console.warn(
-      "⚠️  Email service not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD in .env",
-    );
+    if (!emailConfigWarned) {
+      console.warn(
+        "[email] Service not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD in backend/.env",
+      );
+      emailConfigWarned = true;
+    }
+    emailServiceDisabledReason = "email-not-configured";
     return null;
   }
 
   transporter = nodemailer.createTransport({
     service: "gmail",
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
     auth: {
       user: gmailUser,
       pass: gmailPassword,
     },
   });
 
-  console.log(`✅ Email service initialized for ${gmailUser}`);
   return transporter;
-};
+}
 
-/**
- * Send assignment notification to user and technician
- * Called when a complaint is assigned to a technician
- *
- * @param {Object} complaint - Complaint document with populated user and technician
- * @param {Object} complaint.userId - User object {name, email}
- * @param {Object} complaint.technician - Technician object {name, email}
- * @param {String} complaint.description - Complaint description
- * @param {String} complaint.category - Complaint category
- * @param {String} complaint.priority - Priority level
- * @param {String} complaint._id - Complaint ID
- * @returns {Promise<Object>} - Send result
- */
-exports.sendAssignmentNotification = async (complaint) => {
-  try {
-    const transport = initializeTransporter();
-    if (!transport) {
-      console.warn("Email service not configured, skipping notification");
-      return { success: false, message: "Email service not configured" };
+async function ensureTransportReady() {
+  const transport = initializeTransporter();
+  if (!transport) return null;
+
+  if (!transporterVerified) {
+    try {
+      if (typeof transport.verify === "function") {
+        await transport.verify();
+      }
+      transporterVerified = true;
+      const provider = resolveEmailProvider();
+      const verifiedUser =
+        provider === "sendgrid"
+          ? process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_FROM
+          : process.env.GMAIL_USER || process.env.EMAIL_USER;
+      console.log(`[email] ${provider} service verified for ${verifiedUser}`);
+    } catch (error) {
+      const isAuthFailure =
+        Number(error?.responseCode) === 535 ||
+        /badcredentials|username and password not accepted|auth/i.test(
+          error?.message || "",
+        );
+
+      emailServiceDisabledReason = isAuthFailure
+        ? "email-auth-failed"
+        : "email-verify-failed";
+      transporter = null;
+      transporterVerified = false;
+
+      console.warn(
+        `[email] Disabled for this runtime (${emailServiceDisabledReason}): ${error.message}`,
+      );
+      return null;
     }
+  }
 
+  return transport;
+}
+
+function withTimeout(promise, timeoutMs, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => {
+        const error = new Error(
+          `[email] ${label} timed out after ${timeoutMs}ms`,
+        );
+        error.code = "ETIMEDOUT";
+        reject(error);
+      }, timeoutMs);
+    }),
+  ]);
+}
+
+async function sendMailWithRetry(mailOptions, label) {
+  const transport = await ensureTransportReady();
+  if (!transport) {
+    return {
+      success: false,
+      reason: emailServiceDisabledReason || "email-unavailable",
+      label,
+    };
+  }
+
+  if (!mailOptions?.to || !mailOptions?.subject || !mailOptions?.html) {
+    return {
+      success: false,
+      reason: "invalid-mail-options",
+      label,
+    };
+  }
+
+  const info = await withRetry(
+    async () =>
+      withTimeout(
+        transport.sendMail({
+          from: getFromAddress(),
+          ...mailOptions,
+        }),
+        EMAIL_SEND_TIMEOUT_MS,
+        label,
+      ),
+    {
+      attempts: EMAIL_RETRY_ATTEMPTS,
+      delayMs: EMAIL_RETRY_DELAY_MS,
+      label,
+    },
+  );
+
+  return {
+    success: true,
+    label,
+    accepted: info.accepted || [],
+    rejected: info.rejected || [],
+    messageId: info.messageId,
+  };
+}
+
+function normalizeAttachments(attachment) {
+  if (!attachment) return [];
+  if (Array.isArray(attachment)) return attachment;
+  return [attachment];
+}
+
+function notifyResultSummary(results, type) {
+  const successful = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+
+  if (failed.length === 0) {
+    console.log(
+      `[email] ${type} notification sent (${successful.length}/${results.length})`,
+    );
+  } else {
+    console.warn(
+      `[email] ${type} notification partially failed (${successful.length}/${results.length})`,
+      failed.map((f) => ({ label: f.label, reason: f.reason || f.error })),
+    );
+  }
+
+  return {
+    success: failed.length === 0,
+    partial: failed.length > 0 && successful.length > 0,
+    total: results.length,
+    sent: successful.length,
+    failed: failed.length,
+    results,
+  };
+}
+
+exports.sendAssignmentNotification = async (complaint, attachment = null) => {
+  try {
     const {
       userId,
       technician,
@@ -88,199 +365,166 @@ exports.sendAssignmentNotification = async (complaint) => {
       category,
       location,
       priority,
-    } = complaint;
+    } = complaint || {};
 
-    const complaintUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/complaint/${_id}`;
-    const issueId = _id.toString().slice(-8).toUpperCase();
+    if (!userId?.email || !technician?.email) {
+      return {
+        success: false,
+        reason: "missing-recipient-email",
+      };
+    }
 
-    // Email to user
-    const userEmailContent = getAssignmentEmailTemplate(
-      userId.name,
-      issueId,
-      category,
-      location,
-      description,
-      technician.name,
-      priority,
-      complaintUrl,
-      "user",
-    );
+    const issueId = toIssueId(_id);
+    const complaintUrl = `${DEFAULT_FRONTEND_URL}/complaint/${_id}`;
 
-    const userMailOptions = {
-      from: process.env.GMAIL_USER,
+    const userMail = {
       to: userId.email,
-      subject: `🔧 Issue #${issueId} Assigned - ${category} at ${location}`,
-      html: userEmailContent,
+      subject: `Issue #${issueId} assigned: ${category || "General"}`,
+      html: assignmentTemplate({
+        name: userId.name || "Citizen",
+        issueId,
+        category,
+        location,
+        description,
+        priority,
+        technicianName: technician.name || "Assigned Technician",
+        complaintUrl,
+        recipient: "user",
+      }),
+      attachments: normalizeAttachments(attachment),
     };
 
-    // Email to technician
-    const technicianEmailContent = getAssignmentEmailTemplate(
-      technician.name,
-      issueId,
-      category,
-      location,
-      description,
-      null,
-      priority,
-      complaintUrl,
-      "technician",
-    );
-
-    const technicianMailOptions = {
-      from: process.env.GMAIL_USER,
+    const technicianMail = {
       to: technician.email,
-      subject: `📋 New Assignment #${issueId} - ${priority} Priority - ${category}`,
-      html: technicianEmailContent,
+      subject: `New assignment #${issueId} (${priority || "Medium"})`,
+      html: assignmentTemplate({
+        name: technician.name || "Technician",
+        issueId,
+        category,
+        location,
+        description,
+        priority,
+        complaintUrl,
+        recipient: "technician",
+      }),
+      attachments: normalizeAttachments(attachment),
     };
 
-    // Send both emails in parallel
-    const [userResult, techResult] = await Promise.all([
-      transport.sendMail(userMailOptions),
-      transport.sendMail(technicianMailOptions),
+    const settled = await Promise.allSettled([
+      sendMailWithRetry(userMail, `assignment-user-${issueId}`),
+      sendMailWithRetry(technicianMail, `assignment-tech-${issueId}`),
     ]);
 
-    console.log(
-      `✅ Assignment emails sent - User: ${userId.email}, Technician: ${technician.email}`,
-    );
+    const normalized = settled.map((item, idx) => {
+      if (item.status === "fulfilled") return item.value;
+      return {
+        success: false,
+        label:
+          idx === 0
+            ? `assignment-user-${issueId}`
+            : `assignment-tech-${issueId}`,
+        error: item.reason?.message || "unknown-error",
+      };
+    });
 
-    return {
-      success: true,
-      message: "Assignment notifications sent",
-      userEmail: userId.email,
-      technicianEmail: technician.email,
-    };
+    return notifyResultSummary(normalized, "assignment");
   } catch (error) {
-    console.error("Error sending assignment notification:", error);
+    console.error("[email] Assignment notification failed:", error.message);
     return {
       success: false,
-      message: "Failed to send assignment notification",
       error: error.message,
     };
   }
 };
 
-/**
- * Send status update notification to user
- *
- * @param {Object} complaint - Complaint document
- * @param {String} complaint.userId.email - User email
- * @param {String} complaint.userId.name - User name
- * @param {String} complaint.status - New status (Pending, In Progress, Resolved, Closed)
- * @param {String} complaint._id - Complaint ID
- * @param {String} statusMessage - Detailed status message
- * @returns {Promise<Object>}
- */
-exports.sendStatusUpdateNotification = async (complaint, statusMessage) => {
+exports.sendStatusUpdateNotification = async (
+  complaint,
+  statusMessage,
+  attachment = null,
+) => {
   try {
-    const transport = initializeTransporter();
-    if (!transport) {
-      console.warn("Email service not configured, skipping status update");
-      return { success: false, message: "Email service not configured" };
+    const { userId, status, _id, category, location } = complaint || {};
+
+    if (!userId?.email) {
+      return {
+        success: false,
+        reason: "missing-recipient-email",
+      };
     }
 
-    const { userId, status, _id, category } = complaint;
-    const issueId = _id.toString().slice(-8).toUpperCase();
-    const complaintUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/complaint/${_id}`;
+    const issueId = toIssueId(_id);
+    const complaintUrl = `${DEFAULT_FRONTEND_URL}/complaint/${_id}`;
 
-    const emailContent = getStatusUpdateEmailTemplate(
-      userId.name,
-      issueId,
-      status,
-      statusMessage,
-      category,
-      complaintUrl,
-    );
-
-    const mailOptions = {
-      from: process.env.GMAIL_USER,
+    const mail = {
       to: userId.email,
-      subject: `📢 Update on Issue #${issueId} - Status: ${status}`,
-      html: emailContent,
+      subject: `Issue #${issueId} status: ${status}`,
+      html: statusTemplate({
+        name: userId.name || "Citizen",
+        issueId,
+        status,
+        category,
+        location,
+        statusMessage,
+        complaintUrl,
+      }),
+      attachments: normalizeAttachments(attachment),
     };
 
-    const result = await transport.sendMail(mailOptions);
-
-    console.log(`✅ Status update email sent to ${userId.email}`);
-
-    return {
-      success: true,
-      message: "Status update notification sent",
-      email: userId.email,
-    };
+    const result = await sendMailWithRetry(mail, `status-user-${issueId}`);
+    return notifyResultSummary([result], "status");
   } catch (error) {
-    console.error("Error sending status update:", error);
+    console.error("[email] Status notification failed:", error.message);
     return {
       success: false,
-      message: "Failed to send status update",
       error: error.message,
     };
   }
 };
 
-/**
- * Send resolution notification (issue resolved)
- *
- * @param {Object} complaint - Complaint document
- * @param {String} resolutionDetails - Details of how issue was resolved
- * @returns {Promise<Object>}
- */
-exports.sendResolutionNotification = async (complaint, resolutionDetails) => {
+exports.sendResolutionNotification = async (
+  complaint,
+  resolutionDetails,
+  attachment = null,
+) => {
   try {
-    const transport = initializeTransporter();
-    if (!transport) {
-      console.warn("Email service not configured, skipping resolution email");
-      return { success: false, message: "Email service not configured" };
+    const { userId, technician, _id, category, location } = complaint || {};
+
+    if (!userId?.email) {
+      return {
+        success: false,
+        reason: "missing-recipient-email",
+      };
     }
 
-    const { userId, technician, _id, category, location } = complaint;
-    const issueId = _id.toString().slice(-8).toUpperCase();
-    const complaintUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/complaint/${_id}`;
+    const issueId = toIssueId(_id);
+    const complaintUrl = `${DEFAULT_FRONTEND_URL}/complaint/${_id}`;
 
-    const emailContent = getResolutionEmailTemplate(
-      userId.name,
-      issueId,
-      category,
-      location,
-      technician?.name || "Support Team",
-      resolutionDetails,
-      complaintUrl,
-    );
-
-    const mailOptions = {
-      from: process.env.GMAIL_USER,
+    const mail = {
       to: userId.email,
-      subject: `✅ Issue #${issueId} Resolved - Thank You!`,
-      html: emailContent,
+      subject: `Issue #${issueId} resolved`,
+      html: resolutionTemplate({
+        name: userId.name || "Citizen",
+        issueId,
+        category,
+        location,
+        resolutionDetails,
+        technicianName: technician?.name || "Support Team",
+        complaintUrl,
+      }),
+      attachments: normalizeAttachments(attachment),
     };
 
-    const result = await transport.sendMail(mailOptions);
-
-    console.log(`✅ Resolution notification sent to ${userId.email}`);
-
-    return {
-      success: true,
-      message: "Resolution notification sent",
-      email: userId.email,
-    };
+    const result = await sendMailWithRetry(mail, `resolution-user-${issueId}`);
+    return notifyResultSummary([result], "resolution");
   } catch (error) {
-    console.error("Error sending resolution notification:", error);
+    console.error("[email] Resolution notification failed:", error.message);
     return {
       success: false,
-      message: "Failed to send resolution notification",
       error: error.message,
     };
   }
 };
 
-/**
- * Send email with attachment (e.g., Excel report)
- *
- * @param {String} to - Recipient email
- * @param {String} subject - Email subject
- * @param {String} htmlContent - HTML email content
- * @param {Object} attachment - Attachment object {filename, content}
- * @returns {Promise<Object>}
- */
 exports.sendEmailWithAttachment = async (
   to,
   subject,
@@ -288,464 +532,240 @@ exports.sendEmailWithAttachment = async (
   attachment,
 ) => {
   try {
-    const transport = initializeTransporter();
-    if (!transport) {
-      console.warn("Email service not configured, skipping email");
-      return { success: false, message: "Email service not configured" };
-    }
-
-    const mailOptions = {
-      from: process.env.GMAIL_USER,
-      to,
-      subject,
-      html: htmlContent,
-      attachments: [
-        {
-          filename: attachment.filename,
-          content: attachment.content, // Can be Buffer or string
-        },
-      ],
-    };
-
-    const result = await transport.sendMail(mailOptions);
-
-    console.log(`✅ Email with attachment sent to ${to}`);
-
-    return {
-      success: true,
-      message: "Email with attachment sent",
-      email: to,
-    };
-  } catch (error) {
-    console.error("Error sending email with attachment:", error);
-    return {
-      success: false,
-      message: "Failed to send email with attachment",
-      error: error.message,
-    };
-  }
-};
-
-/**
- * Send reminder email to technician about pending complaints
- *
- * @param {Object} technician - Technician object {name, email}
- * @param {Array} pendingComplaints - Array of pending complaints
- * @returns {Promise<Object>}
- */
-exports.sendTechnicianReminder = async (technician, pendingComplaints) => {
-  try {
-    const transport = initializeTransporter();
-    if (!transport) {
-      console.warn("Email service not configured, skipping reminder");
-      return { success: false, message: "Email service not configured" };
-    }
-
-    const emailContent = getTechnicianReminderTemplate(
-      technician.name,
-      pendingComplaints,
+    const result = await sendMailWithRetry(
+      {
+        to,
+        subject,
+        html: htmlContent,
+        attachments: attachment
+          ? [
+              {
+                filename: attachment.filename,
+                content: attachment.content,
+              },
+            ]
+          : [],
+      },
+      "attachment-mail",
     );
 
-    const mailOptions = {
-      from: process.env.GMAIL_USER,
-      to: technician.email,
-      subject: `⏰ Reminder: ${pendingComplaints.length} Pending Issues Assigned to You`,
-      html: emailContent,
-    };
-
-    const result = await transport.sendMail(mailOptions);
-
-    console.log(`✅ Reminder email sent to technician ${technician.email}`);
-
-    return {
-      success: true,
-      message: "Reminder sent",
-      email: technician.email,
-    };
+    return notifyResultSummary([result], "attachment");
   } catch (error) {
-    console.error("Error sending technician reminder:", error);
+    console.error("[email] Attachment notification failed:", error.message);
     return {
       success: false,
-      message: "Failed to send reminder",
       error: error.message,
     };
   }
 };
 
-// ==================== EMAIL TEMPLATES ====================
+exports.sendTechnicianReminder = async (technician, pendingComplaints = []) => {
+  try {
+    if (!technician?.email) {
+      return {
+        success: false,
+        reason: "missing-recipient-email",
+      };
+    }
 
-/**
- * Assignment notification email template
- */
-function getAssignmentEmailTemplate(
-  name,
-  issueId,
-  category,
-  location,
-  description,
-  technicianName,
-  priority,
-  complaintUrl,
-  recipient,
-) {
-  const isUser = recipient === "user";
+    const mail = {
+      to: technician.email,
+      subject: `Reminder: ${pendingComplaints.length} pending issue(s)`,
+      html: reminderTemplate({
+        name: technician.name || "Technician",
+        pendingComplaints,
+        dashboardUrl: `${DEFAULT_FRONTEND_URL}/dashboard`,
+      }),
+    };
 
-  const baseStyle = `
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    line-height: 1.6;
-    color: #333;
-  `;
-
-  const priorityColor =
-    {
-      High: "#d73a49",
-      Medium: "#ffa500",
-      Low: "#28a745",
-    }[priority] || "#666";
-
-  if (isUser) {
-    return `
-      <div style="${baseStyle}">
-        <div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
-          <!-- Header -->
-          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center;">
-            <h1 style="margin: 0; font-size: 24px;">🔧 Your Issue Has Been Assigned</h1>
-          </div>
-
-          <!-- Content -->
-          <div style="padding: 30px;">
-            <p style="font-size: 16px;">Hi ${name},</p>
-            
-            <p>Great news! Your reported issue has been assigned to our expert technician.</p>
-
-            <!-- Issue Details Card -->
-            <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-              <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                  <td style="padding: 10px 0;"><strong>Issue ID:</strong></td>
-                  <td style="padding: 10px 0; text-align: right; font-weight: bold; font-size: 18px;">#${issueId}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 0;"><strong>Category:</strong></td>
-                  <td style="padding: 10px 0; text-align: right;">${category}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 0;"><strong>Location:</strong></td>
-                  <td style="padding: 10px 0; text-align: right;">${location}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 0;"><strong>Priority:</strong></td>
-                  <td style="padding: 10px 0; text-align: right;">
-                    <span style="background: ${priorityColor}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold;">
-                      ${priority}
-                    </span>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 0;"><strong>Assigned To:</strong></td>
-                  <td style="padding: 10px 0; text-align: right;">${technicianName || "Our Team"}</td>
-                </tr>
-              </table>
-            </div>
-
-            <p><strong>Issue Description:</strong></p>
-            <p style="background: #f9f9f9; padding: 15px; border-left: 4px solid #667eea; border-radius: 4px;">
-              ${description}
-            </p>
-
-            <!-- CTA Button -->
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${complaintUrl}" style="display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold;">
-                View Full Details →
-              </a>
-            </div>
-
-            <p>You can track the progress of your issue anytime by clicking the button above or logging into your dashboard.</p>
-
-            <p>We appreciate your patience and will keep you updated on the resolution status.</p>
-          </div>
-
-          <!-- Footer -->
-          <div style="background: #f5f5f5; padding: 20px; text-align: center; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
-            <p style="margin: 0;">CiviQ - Civic Issue Tracking System</p>
-            <p style="margin: 5px 0;">© 2024 All rights reserved</p>
-          </div>
-        </div>
-      </div>
-    `;
-  } else {
-    // Technician version
-    return `
-      <div style="${baseStyle}">
-        <div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
-          <!-- Header -->
-          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center;">
-            <h1 style="margin: 0; font-size: 24px;">📋 New Assignment for You</h1>
-          </div>
-
-          <!-- Content -->
-          <div style="padding: 30px;">
-            <p style="font-size: 16px;">Hi ${name},</p>
-            
-            <p>A new issue has been assigned to you based on your specialization and current workload.</p>
-
-            <!-- Issue Details Card -->
-            <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-              <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                  <td style="padding: 10px 0;"><strong>Issue ID:</strong></td>
-                  <td style="padding: 10px 0; text-align: right; font-weight: bold; font-size: 18px;">#${issueId}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 0;"><strong>Category:</strong></td>
-                  <td style="padding: 10px 0; text-align: right;">${category}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 0;"><strong>Location:</strong></td>
-                  <td style="padding: 10px 0; text-align: right;">${location}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 0;"><strong>Priority:</strong></td>
-                  <td style="padding: 10px 0; text-align: right;">
-                    <span style="background: ${priorityColor}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold;">
-                      ${priority}
-                    </span>
-                  </td>
-                </tr>
-              </table>
-            </div>
-
-            <p><strong>Issue Description:</strong></p>
-            <p style="background: #f9f9f9; padding: 15px; border-left: 4px solid #667eea; border-radius: 4px;">
-              ${description}
-            </p>
-
-            <!-- CTA Button -->
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${complaintUrl}" style="display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold;">
-                View Assignment →
-              </a>
-            </div>
-
-            <p>Please acknowledge receipt of this assignment and update the status as you make progress.</p>
-          </div>
-
-          <!-- Footer -->
-          <div style="background: #f5f5f5; padding: 20px; text-align: center; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
-            <p style="margin: 0;">CiviQ - Civic Issue Tracking System</p>
-            <p style="margin: 5px 0;">© 2024 All rights reserved</p>
-          </div>
-        </div>
-      </div>
-    `;
+    const result = await sendMailWithRetry(
+      mail,
+      `reminder-tech-${technician._id || "unknown"}`,
+    );
+    return notifyResultSummary([result], "reminder");
+  } catch (error) {
+    console.error("[email] Technician reminder failed:", error.message);
+    return {
+      success: false,
+      error: error.message,
+    };
   }
-}
+};
 
-/**
- * Status update email template
- */
-function getStatusUpdateEmailTemplate(
-  name,
-  issueId,
-  status,
-  statusMessage,
-  category,
-  complaintUrl,
-) {
-  const statusColor =
-    {
-      Pending: "#FFA500",
-      "In Progress": "#3498db",
-      Resolved: "#28a745",
-      Closed: "#95a5a6",
-    }[status] || "#666";
+exports.sendSignupNotification = async (user) => {
+  try {
+    if (!user?.email) {
+      return {
+        success: false,
+        reason: "missing-recipient-email",
+      };
+    }
 
+    const mail = {
+      to: user.email,
+      subject: "Welcome to CiviQ - Signup Successful",
+      html: signupTemplate({
+        name: user.name || "User",
+        email: user.email,
+        loginUrl: DEFAULT_FRONTEND_URL,
+      }),
+    };
+
+    const result = await sendMailWithRetry(
+      mail,
+      `signup-${user._id || user.email}`,
+    );
+    return notifyResultSummary([result], "signup");
+  } catch (error) {
+    console.error("[email] Signup notification failed:", error.message);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+};
+
+exports.sendLoginNotification = async (user) => {
+  try {
+    if (!user?.email) {
+      return {
+        success: false,
+        reason: "missing-recipient-email",
+      };
+    }
+
+    const mail = {
+      to: user.email,
+      subject: "CiviQ Login Alert",
+      html: loginTemplate({
+        name: user.name || "User",
+        email: user.email,
+        loggedInAt: new Date().toISOString(),
+      }),
+    };
+
+    const result = await sendMailWithRetry(
+      mail,
+      `login-alert-${user._id || user.email}`,
+    );
+    return notifyResultSummary([result], "login-alert");
+  } catch (error) {
+    console.error("[email] Login notification failed:", error.message);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+};
+
+function baseCard(innerHtml) {
   return `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333;">
-      <div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
-        <!-- Header -->
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center;">
-          <h1 style="margin: 0; font-size: 24px;">📢 Issue Status Update</h1>
-        </div>
-
-        <!-- Content -->
-        <div style="padding: 30px;">
-          <p style="font-size: 16px;">Hi ${name},</p>
-          
-          <p>We have an important update on your reported issue.</p>
-
-          <!-- Status Card -->
-          <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 5px solid ${statusColor};">
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr>
-                <td style="padding: 10px 0;"><strong>Issue ID:</strong></td>
-                <td style="padding: 10px 0; text-align: right; font-weight: bold;">#${issueId}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 0;"><strong>Category:</strong></td>
-                <td style="padding: 10px 0; text-align: right;">${category}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 0;"><strong>Status:</strong></td>
-                <td style="padding: 10px 0; text-align: right;">
-                  <span style="background: ${statusColor}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold;">
-                    ${status}
-                  </span>
-                </td>
-              </tr>
-            </table>
-          </div>
-
-          <p><strong>Status Update:</strong></p>
-          <p style="background: #f9f9f9; padding: 15px; border-left: 4px solid ${statusColor}; border-radius: 4px;">
-            ${statusMessage}
-          </p>
-
-          <!-- CTA Button -->
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${complaintUrl}" style="display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold;">
-              View Details →
-            </a>
-          </div>
-        </div>
-
-        <!-- Footer -->
-        <div style="background: #f5f5f5; padding: 20px; text-align: center; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
-          <p style="margin: 0;">CiviQ - Civic Issue Tracking System</p>
-        </div>
+    <div style="font-family:Segoe UI,Arial,sans-serif;color:#111;line-height:1.5;">
+      <div style="max-width:620px;margin:0 auto;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
+        ${innerHtml}
       </div>
     </div>
   `;
 }
 
-/**
- * Resolution email template
- */
-function getResolutionEmailTemplate(
-  name,
-  issueId,
-  category,
-  location,
-  technicianName,
-  resolutionDetails,
-  complaintUrl,
-) {
-  return `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333;">
-      <div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
-        <!-- Header -->
-        <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px; text-align: center;">
-          <h1 style="margin: 0; font-size: 28px;">✅ Issue Resolved!</h1>
-        </div>
+function assignmentTemplate(data) {
+  const priority = data.priority || "Medium";
+  const color = getStatusColor("In Progress");
+  const intro =
+    data.recipient === "technician"
+      ? "A new issue is assigned to you."
+      : `Your issue has been assigned to ${data.technicianName}.`;
 
-        <!-- Content -->
-        <div style="padding: 30px;">
-          <p style="font-size: 16px;">Hi ${name},</p>
-          
-          <p style="font-size: 18px; color: #28a745;"><strong>Great news! Your reported issue has been successfully resolved.</strong></p>
-
-          <!-- Resolution Details Card -->
-          <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 5px solid #28a745;">
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr>
-                <td style="padding: 10px 0;"><strong>Issue ID:</strong></td>
-                <td style="padding: 10px 0; text-align: right; font-weight: bold;">#${issueId}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 0;"><strong>Category:</strong></td>
-                <td style="padding: 10px 0; text-align: right;">${category}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 0;"><strong>Location:</strong></td>
-                <td style="padding: 10px 0; text-align: right;">${location}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 0;"><strong>Resolved By:</strong></td>
-                <td style="padding: 10px 0; text-align: right;">${technicianName}</td>
-              </tr>
-            </table>
-          </div>
-
-          <p><strong>Resolution Summary:</strong></p>
-          <p style="background: #f9f9f9; padding: 15px; border-left: 4px solid #28a745; border-radius: 4px;">
-            ${resolutionDetails}
-          </p>
-
-          <!-- Feedback Section -->
-          <div style="background: #e8f5e9; padding: 15px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 0 0 10px 0;"><strong>📝 Your Feedback Matters</strong></p>
-            <p style="margin: 0;">We'd love to hear about your experience. Please rate the resolution and let us know if there's anything else we can help with.</p>
-          </div>
-
-          <!-- CTA Button -->
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${complaintUrl}" style="display: inline-block; background: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold;">
-              View Full Issue Details →
-            </a>
-          </div>
-
-          <p>Thank you for using CiviQ to report civic issues. Your feedback helps us improve our community!</p>
-        </div>
-
-        <!-- Footer -->
-        <div style="background: #f5f5f5; padding: 20px; text-align: center; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
-          <p style="margin: 0;">CiviQ - Civic Issue Tracking System</p>
-          <p style="margin: 5px 0;">© 2024 All rights reserved</p>
-        </div>
-      </div>
+  return baseCard(`
+    <div style="background:#1d4ed8;color:#fff;padding:18px 20px;font-size:18px;font-weight:600;">Issue Assignment</div>
+    <div style="padding:20px;">
+      <p>Hello ${data.name},</p>
+      <p>${intro}</p>
+      <p><strong>Issue ID:</strong> #${data.issueId}</p>
+      <p><strong>Category:</strong> ${data.category || "General"}</p>
+      <p><strong>Location:</strong> ${data.location || "Not provided"}</p>
+      <p><strong>Priority:</strong> <span style="color:${color};font-weight:600;">${priority}</span></p>
+      <p><strong>Description:</strong><br/>${data.description || "No description provided"}</p>
+      <p><a href="${data.complaintUrl}">Open complaint details</a></p>
     </div>
-  `;
+  `);
 }
 
-/**
- * Technician reminder email template
- */
-function getTechnicianReminderTemplate(name, pendingComplaints) {
-  const complaintsList = pendingComplaints
-    .map(
-      (c) => `
-    <div style="background: #f9f9f9; padding: 10px; margin: 10px 0; border-radius: 4px; border-left: 4px solid #667eea;">
-      <strong>#${c._id.toString().slice(-8).toUpperCase()}</strong> - ${c.category} at ${c.location}
-      <br/><small>${c.description.substring(0, 100)}...</small>
+function statusTemplate(data) {
+  const color = getStatusColor(data.status);
+
+  return baseCard(`
+    <div style="background:${color};color:#fff;padding:18px 20px;font-size:18px;font-weight:600;">Issue Status Update</div>
+    <div style="padding:20px;">
+      <p>Hello ${data.name},</p>
+      <p>Your issue status has changed.</p>
+      <p><strong>Issue ID:</strong> #${data.issueId}</p>
+      <p><strong>Status:</strong> <span style="color:${color};font-weight:600;">${data.status}</span></p>
+      <p><strong>Category:</strong> ${data.category || "General"}</p>
+      <p><strong>Location:</strong> ${data.location || "Not provided"}</p>
+      <p><strong>Update:</strong><br/>${data.statusMessage || "Please check your dashboard for details."}</p>
+      <p><a href="${data.complaintUrl}">Open complaint details</a></p>
     </div>
-  `,
-    )
+  `);
+}
+
+function resolutionTemplate(data) {
+  return baseCard(`
+    <div style="background:#15803d;color:#fff;padding:18px 20px;font-size:18px;font-weight:600;">Issue Resolved</div>
+    <div style="padding:20px;">
+      <p>Hello ${data.name},</p>
+      <p>Your issue has been marked as resolved.</p>
+      <p><strong>Issue ID:</strong> #${data.issueId}</p>
+      <p><strong>Category:</strong> ${data.category || "General"}</p>
+      <p><strong>Location:</strong> ${data.location || "Not provided"}</p>
+      <p><strong>Resolved by:</strong> ${data.technicianName}</p>
+      <p><strong>Resolution details:</strong><br/>${data.resolutionDetails || "Resolution completed by field team."}</p>
+      <p><a href="${data.complaintUrl}">Open complaint details</a></p>
+    </div>
+  `);
+}
+
+function reminderTemplate(data) {
+  const items = data.pendingComplaints
+    .map((c) => {
+      const id = toIssueId(c._id);
+      return `<li>#${id} - ${c.category || "General"} - ${c.location || "No location"}</li>`;
+    })
     .join("");
 
-  return `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333;">
-      <div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
-        <!-- Header -->
-        <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 30px; text-align: center;">
-          <h1 style="margin: 0; font-size: 24px;">⏰ Pending Issues Reminder</h1>
-        </div>
-
-        <!-- Content -->
-        <div style="padding: 30px;">
-          <p style="font-size: 16px;">Hi ${name},</p>
-          
-          <p>You currently have <strong>${pendingComplaints.length}</strong> pending issues assigned to you. Here's a quick recap:</p>
-
-          <!-- Issues List -->
-          <div>${complaintsList}</div>
-
-          <!-- CTA Button -->
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="http://localhost:3000/dashboard" style="display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold;">
-              View Dashboard →
-            </a>
-          </div>
-
-          <p>Please prioritize and update the status of these issues to keep the community informed.</p>
-        </div>
-
-        <!-- Footer -->
-        <div style="background: #f5f5f5; padding: 20px; text-align: center; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
-          <p style="margin: 0;">CiviQ - Civic Issue Tracking System</p>
-        </div>
-      </div>
+  return baseCard(`
+    <div style="background:#b45309;color:#fff;padding:18px 20px;font-size:18px;font-weight:600;">Pending Issue Reminder</div>
+    <div style="padding:20px;">
+      <p>Hello ${data.name},</p>
+      <p>You have ${data.pendingComplaints.length} pending issue(s).</p>
+      <ul>${items || "<li>No pending issues</li>"}</ul>
+      <p><a href="${data.dashboardUrl}">Open dashboard</a></p>
     </div>
-  `;
+  `);
 }
 
-module.exports = exports;
+function signupTemplate(data) {
+  return baseCard(`
+    <div style="background:#1d4ed8;color:#fff;padding:18px 20px;font-size:18px;font-weight:600;">Welcome to CiviQ</div>
+    <div style="padding:20px;">
+      <p>Hello ${data.name},</p>
+      <p>Your account has been created successfully with this email:</p>
+      <p><strong>${data.email}</strong></p>
+      <p>For security, please login using your password to start using the platform.</p>
+      <p><a href="${data.loginUrl}">Open CiviQ Login</a></p>
+    </div>
+  `);
+}
+
+function loginTemplate(data) {
+  return baseCard(`
+    <div style="background:#0f766e;color:#fff;padding:18px 20px;font-size:18px;font-weight:600;">Login Alert</div>
+    <div style="padding:20px;">
+      <p>Hello ${data.name},</p>
+      <p>Your account was used to login.</p>
+      <p><strong>Email:</strong> ${data.email}</p>
+      <p><strong>Time (UTC):</strong> ${data.loggedInAt}</p>
+      <p>If this was not you, please reset your password immediately.</p>
+    </div>
+  `);
+}

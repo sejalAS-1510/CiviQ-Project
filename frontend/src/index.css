@@ -1,8 +1,8 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
 
 @layer base {
   :root {
@@ -53,10 +53,22 @@
     --info: 210 70% 50%;
     --info-foreground: 0 0% 100%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(150 18% 30%), hsl(140 15% 42%));
-    --gradient-hero: linear-gradient(135deg, hsl(150 18% 30% / 0.9), hsl(140 12% 45% / 0.8));
+    --gradient-primary: linear-gradient(
+      135deg,
+      hsl(150 18% 30%),
+      hsl(140 15% 42%)
+    );
+    --gradient-hero: linear-gradient(
+      135deg,
+      hsl(150 18% 30% / 0.9),
+      hsl(140 12% 45% / 0.8)
+    );
     --gradient-card: linear-gradient(180deg, hsl(0 0% 100%), hsl(140 10% 97%));
-    --gradient-glass: linear-gradient(135deg, rgba(255,255,255,0.85), rgba(255,255,255,0.65));
+    --gradient-glass: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.85),
+      rgba(255, 255, 255, 0.65)
+    );
 
     --shadow-sm: 0 1px 3px hsl(150 18% 30% / 0.06);
     --shadow-md: 0 4px 12px hsl(150 18% 30% / 0.08);
@@ -102,11 +114,16 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: "Inter", system-ui, sans-serif;
   }
 
-  h1, h2, h3, h4, h5, h6 {
-    font-family: 'Poppins', system-ui, sans-serif;
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: "Poppins", system-ui, sans-serif;
   }
 }
 
@@ -169,14 +186,19 @@
 
   /* Background gradient with decorative blobs */
   .bg-page-gradient {
-    background: linear-gradient(145deg, hsl(40 30% 96%), hsl(140 12% 94%), hsl(140 10% 96%));
+    background: linear-gradient(
+      145deg,
+      hsl(40 30% 96%),
+      hsl(140 12% 94%),
+      hsl(140 10% 96%)
+    );
     position: relative;
     min-height: 100vh;
   }
 
   .bg-page-gradient::before,
   .bg-page-gradient::after {
-    content: '';
+    content: "";
     position: fixed;
     border-radius: 50%;
     pointer-events: none;
@@ -188,7 +210,11 @@
     height: 500px;
     top: -120px;
     right: -100px;
-    background: radial-gradient(circle, hsl(150 18% 30% / 0.06), transparent 70%);
+    background: radial-gradient(
+      circle,
+      hsl(150 18% 30% / 0.06),
+      transparent 70%
+    );
   }
 
   .bg-page-gradient::after {
@@ -196,6 +222,10 @@
     height: 600px;
     bottom: -150px;
     left: -150px;
-    background: radial-gradient(circle, hsl(140 15% 42% / 0.05), transparent 70%);
+    background: radial-gradient(
+      circle,
+      hsl(140 15% 42% / 0.05),
+      transparent 70%
+    );
   }
 }

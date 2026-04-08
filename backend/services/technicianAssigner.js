@@ -114,7 +114,11 @@ async function selectBestTechnician(technicians, priority, matchType) {
     const workloadScore = normalizeWorkload(score.activeComplaints);
     const experienceScore = score.experience;
     const priorityBonus =
-      priority === "High" ? experienceScore : score.activeComplaints;
+      priority === "High"
+        ? experienceScore * 0.2
+        : priority === "Medium"
+          ? experienceScore * 0.1
+          : 0;
     const resolutionBonus = 100 - Math.min(score.avgResolutionTime, 100);
 
     // Weighted scoring algorithm
@@ -122,7 +126,8 @@ async function selectBestTechnician(technicians, priority, matchType) {
       workloadScore * 0.4 + // 40% - fewer active complaints
       experienceScore * 0.3 + // 30% - more experience
       resolutionBonus * 0.2 + // 20% - faster resolution
-      score.matchBonus * 0.1; // 10% - specialization match bonus
+      score.matchBonus * 0.1 + // 10% - specialization match bonus
+      priorityBonus; // boosts experienced tech for high-priority issues
 
     return {
       ...score,
@@ -132,6 +137,7 @@ async function selectBestTechnician(technicians, priority, matchType) {
         experience: experienceScore,
         resolution: resolutionBonus,
         matchBonus: score.matchBonus,
+        priorityBonus,
       },
     };
   });
@@ -282,7 +288,7 @@ exports.manualAssign = async (complaintId, technicianId) => {
     const complaint = await Complaint.findByIdAndUpdate(
       complaintId,
       { technician: technicianId },
-      { new: true },
+      { returnDocument: "after" },
     ).populate("technician", "name email specialization");
 
     if (!complaint) {

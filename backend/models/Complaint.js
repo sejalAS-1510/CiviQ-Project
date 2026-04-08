@@ -15,7 +15,14 @@ const ComplaintSchema = new mongoose.Schema({
 
   category: {
     type: String,
-    enum: ["Infrastructure", "Sanitation", "Utilities", "Safety", "Environment", "General"],
+    enum: [
+      "Infrastructure",
+      "Sanitation",
+      "Utilities",
+      "Safety",
+      "Environment",
+      "General",
+    ],
     default: "General",
   },
 
@@ -42,9 +49,11 @@ const ComplaintSchema = new mongoose.Schema({
     default: "Medium",
   },
 
-  images: [{
-    type: String, // URLs to uploaded images
-  }],
+  images: [
+    {
+      type: String, // URLs to uploaded images
+    },
+  ],
 
   assignedAt: {
     type: Date,
@@ -65,8 +74,8 @@ const ComplaintSchema = new mongoose.Schema({
   },
 });
 
-// Update the updatedAt field before saving
-ComplaintSchema.pre("save", function(next) {
+// Update timestamps and lifecycle fields before saving
+ComplaintSchema.pre("save", function () {
   this.updatedAt = Date.now();
 
   // Set assignedAt when technician is assigned
@@ -75,11 +84,13 @@ ComplaintSchema.pre("save", function(next) {
   }
 
   // Set resolvedAt when status changes to resolved
-  if (this.isModified("status") && this.status === "Resolved" && !this.resolvedAt) {
+  if (
+    this.isModified("status") &&
+    this.status === "Resolved" &&
+    !this.resolvedAt
+  ) {
     this.resolvedAt = Date.now();
   }
-
-  next();
 });
 
 module.exports = mongoose.model("Complaint", ComplaintSchema);
