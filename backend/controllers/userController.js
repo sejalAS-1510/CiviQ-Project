@@ -2,6 +2,24 @@ const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const emailService = require("../services/emailService");
 
+const TECH_SPECIALIZATIONS = {
+  plumbing: "Plumbing",
+  electrical: "Electrical",
+  cleaning: "Cleaning",
+  security: "Security",
+  infrastructure: "Infrastructure",
+  noise: "Noise",
+  "noise control": "Noise",
+  general: "General",
+};
+
+function normalizeTechnicianSpecialization(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return TECH_SPECIALIZATIONS[normalized] || null;
+}
+
 // Generate JWT Token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -16,6 +34,28 @@ exports.register = async (req, res) => {
   try {
     const { name, email, password, role, phone, address, specialization } =
       req.body;
+    const normalizedRole = role || "user";
+
+    if (normalizedRole === "technician" && !specialization) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Technician specialization is required (Electrical, Plumbing, Cleaning, Security, Infrastructure, Noise)",
+      });
+    }
+
+    const normalizedSpecialization =
+      normalizedRole === "technician"
+        ? normalizeTechnicianSpecialization(specialization)
+        : "General";
+
+    if (normalizedRole === "technician" && !normalizedSpecialization) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid technician specialization. Use one of: Electrical, Plumbing, Cleaning, Security, Infrastructure, Noise",
+      });
+    }
 
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -38,10 +78,15 @@ exports.register = async (req, res) => {
       name,
       email,
       password,
-      role: role || "user", // Default to user if not specified
+      role: normalizedRole, // Default to user if not specified
       phone,
       address,
-      specialization: specialization || "General",
+      specialization: normalizedSpecialization || "General",
+      specializations:
+        normalizedRole === "technician"
+          ? [normalizedSpecialization || "General"]
+          : ["General"],
+      isAvailable: normalizedRole === "technician" ? true : undefined,
     });
 
     if (user) {
@@ -63,6 +108,7 @@ exports.register = async (req, res) => {
           phone: user.phone,
           address: user.address,
           specialization: user.specialization,
+          specializations: user.specializations,
         },
       });
     } else {
@@ -73,6 +119,25 @@ exports.register = async (req, res) => {
     }
   } catch (error) {
     console.error("Registration error:", error);
+
+    if (error?.name === "ValidationError") {
+      const firstValidationMessage =
+        Object.values(error.errors || {})[0]?.message ||
+        "Invalid registration data";
+
+      return res.status(400).json({
+        success: false,
+        message: firstValidationMessage,
+      });
+    }
+
+    if (error?.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "User already exists with this email",
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Server error during registration",
@@ -118,6 +183,7 @@ exports.login = async (req, res) => {
           phone: user.phone,
           address: user.address,
           specialization: user.specialization,
+          specializations: user.specializations,
           token: generateToken(user._id),
         },
       });
@@ -154,6 +220,7 @@ exports.getProfile = async (req, res) => {
           phone: user.phone,
           address: user.address,
           specialization: user.specialization,
+          specializations: user.specializations,
           isActive: user.isActive,
           lastLogin: user.lastLogin,
           createdAt: user.createdAt,
@@ -182,15 +249,51 @@ exports.updateProfile = async (req, res) => {
     const user = await User.findById(req.user._id);
 
     if (user) {
-      user.name = req.body.name || user.name;
-      user.email = req.body.email || user.email;
-      user.phone = req.body.phone || user.phone;
-      user.address = req.body.address || user.address;
+      if (typeof req.body.name === "string" && req.body.name.trim()) {
+        user.name = req.body.name.trim();
+      }
+
+      if (typeof req.body.email === "string" && req.body.email.trim()) {
+        user.email = req.body.email.trim().toLowerCase();
+      }
+
+      if (typeof req.body.phone === "string") {
+        const trimmedPhone = req.body.phone.trim();
+        if (trimmedPhone && !/^\d{10}$/.test(trimmedPhone)) {
+          return res.status(400).json({
+            success: false,
+            message: "Please add a valid 10-digit phone number",
+          });
+        }
+        user.phone = trimmedPhone || undefined;
+      }
+
+      if (typeof req.body.address === "string") {
+        const trimmedAddress = req.body.address.trim();
+        user.address = trimmedAddress || undefined;
+      }
 
       // Only allow role update for admins or if user is updating themselves to a lower role
       if (req.user.role === "admin") {
-        user.role = req.body.role || user.role;
-        user.specialization = req.body.specialization || user.specialization;
+        const requestedRole = req.body.role || user.role;
+        user.role = requestedRole;
+
+        if (requestedRole === "technician") {
+          const normalizedSpecialization = normalizeTechnicianSpecialization(
+            req.body.specialization || user.specialization,
+          );
+          if (!normalizedSpecialization) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid technician specialization",
+            });
+          }
+          user.specialization = normalizedSpecialization;
+          user.specializations = [normalizedSpecialization];
+        } else {
+          user.specialization = "General";
+          user.specializations = ["General"];
+        }
       }
 
       if (req.body.password) {
@@ -210,6 +313,7 @@ exports.updateProfile = async (req, res) => {
           phone: updatedUser.phone,
           address: updatedUser.address,
           specialization: updatedUser.specialization,
+          specializations: updatedUser.specializations,
           token: generateToken(updatedUser._id),
         },
       });
@@ -221,6 +325,22 @@ exports.updateProfile = async (req, res) => {
     }
   } catch (error) {
     console.error("Update profile error:", error);
+
+    if (error?.code === 11000 && error?.keyPattern?.email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email already exists. Please use a different email.",
+      });
+    }
+
+    if (error?.name === "ValidationError") {
+      const first = Object.values(error.errors || {})[0];
+      return res.status(400).json({
+        success: false,
+        message: first?.message || "Validation failed",
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -301,10 +421,26 @@ exports.updateUser = async (req, res) => {
     if (user) {
       user.name = req.body.name || user.name;
       user.email = req.body.email || user.email;
-      user.role = req.body.role || user.role;
+      const requestedRole = req.body.role || user.role;
+      user.role = requestedRole;
       user.phone = req.body.phone || user.phone;
       user.address = req.body.address || user.address;
-      user.specialization = req.body.specialization || user.specialization;
+      if (requestedRole === "technician") {
+        const normalizedSpecialization = normalizeTechnicianSpecialization(
+          req.body.specialization || user.specialization,
+        );
+        if (!normalizedSpecialization) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid technician specialization",
+          });
+        }
+        user.specialization = normalizedSpecialization;
+        user.specializations = [normalizedSpecialization];
+      } else {
+        user.specialization = "General";
+        user.specializations = ["General"];
+      }
       user.isActive =
         req.body.isActive !== undefined ? req.body.isActive : user.isActive;
 
@@ -321,6 +457,7 @@ exports.updateUser = async (req, res) => {
           phone: updatedUser.phone,
           address: updatedUser.address,
           specialization: updatedUser.specialization,
+          specializations: updatedUser.specializations,
           isActive: updatedUser.isActive,
         },
       });
@@ -360,6 +497,35 @@ exports.deleteUser = async (req, res) => {
     }
   } catch (error) {
     console.error("Delete user error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+// @desc    Delete current logged-in user account
+// @route   DELETE /api/users/profile
+// @access  Private
+exports.deleteMyAccount = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    await User.findByIdAndDelete(req.user._id);
+
+    res.json({
+      success: true,
+      message: "Account deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete my account error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",

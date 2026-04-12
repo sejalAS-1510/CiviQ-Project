@@ -21,6 +21,9 @@ export interface Issue {
   reportedBy: string;
   reportedAt: Date;
   updatedAt: Date;
+  technicianDecision?: "pending" | "accepted" | "rejected" | "rescheduled";
+  technicianDecisionNote?: string;
+  scheduledFor?: Date;
 }
 
 interface IssueState {
@@ -38,12 +41,26 @@ interface IssueState {
     id: string,
     status: IssueStatus,
   ) => Promise<{ success: boolean; message: string }>;
+  deleteIssue: (id: string) => Promise<{ success: boolean; message: string }>;
+  technicianDecision: (
+    id: string,
+    payload: {
+      action: "accept" | "reject" | "reschedule";
+      note?: string;
+      rescheduleFor?: string;
+    },
+  ) => Promise<{ success: boolean; message: string }>;
   clearError: () => void;
 }
 
 type BackendStatus = "Pending" | "In Progress" | "Resolved" | "Closed";
 type BackendCategory =
+  | "Plumbing"
+  | "Electrical"
+  | "Cleaning"
+  | "Security"
   | "Infrastructure"
+  | "Noise"
   | "Sanitation"
   | "Utilities"
   | "Safety"
@@ -59,24 +76,39 @@ interface BackendComplaint {
   images?: string[];
   createdAt?: string;
   updatedAt?: string;
+  technicianDecision?: "Pending" | "Accepted" | "Rejected" | "Rescheduled";
+  technicianDecisionNote?: string;
+  scheduledFor?: string;
   userId?: {
     name?: string;
     email?: string;
   };
 }
 
+function fromBackendTechnicianDecision(
+  value?: string,
+): Issue["technicianDecision"] {
+  if (value === "Accepted") return "accepted";
+  if (value === "Rejected") return "rejected";
+  if (value === "Rescheduled") return "rescheduled";
+  if (value === "Pending") return "pending";
+  return undefined;
+}
+
 function toBackendCategory(category: IssueCategory): BackendCategory {
   switch (category) {
+    case "plumbing":
+      return "Plumbing";
+    case "electrical":
+      return "Electrical";
+    case "security":
+      return "Security";
     case "infrastructure":
       return "Infrastructure";
-    case "cleaning":
-      return "Sanitation";
-    case "plumbing":
-    case "electrical":
-      return "Utilities";
-    case "security":
-      return "Safety";
     case "noise":
+      return "Noise";
+    case "cleaning":
+      return "Cleaning";
     case "other":
     default:
       return "General";
@@ -85,8 +117,18 @@ function toBackendCategory(category: IssueCategory): BackendCategory {
 
 function fromBackendCategory(category: BackendCategory): IssueCategory {
   switch (category) {
+    case "Plumbing":
+      return "plumbing";
+    case "Electrical":
+      return "electrical";
+    case "Cleaning":
+      return "cleaning";
+    case "Security":
+      return "security";
     case "Infrastructure":
       return "infrastructure";
+    case "Noise":
+      return "noise";
     case "Sanitation":
       return "cleaning";
     case "Utilities":
@@ -133,6 +175,13 @@ function toIssue(complaint: BackendComplaint): Issue {
       ? new Date(complaint.createdAt)
       : new Date(),
     updatedAt: complaint.updatedAt ? new Date(complaint.updatedAt) : new Date(),
+    technicianDecision: fromBackendTechnicianDecision(
+      complaint.technicianDecision,
+    ),
+    technicianDecisionNote: complaint.technicianDecisionNote,
+    scheduledFor: complaint.scheduledFor
+      ? new Date(complaint.scheduledFor)
+      : undefined,
   };
 }
 
@@ -259,6 +308,65 @@ export const useIssueStore = create<IssueState>((set) => ({
       return {
         success: false,
         message: error?.message || "Unable to update status",
+      };
+    }
+  },
+  deleteIssue: async (id) => {
+    try {
+      const { response, payload } = await apiRequest(`/api/complaints/${id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok || !payload?.success) {
+        const message = payload?.message || "Failed to delete issue";
+        return { success: false, message };
+      }
+
+      set((state) => ({
+        issues: state.issues.filter((i) => i.id !== id),
+      }));
+
+      return {
+        success: true,
+        message: payload?.message || "Issue deleted successfully",
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error?.message || "Unable to delete issue",
+      };
+    }
+  },
+  technicianDecision: async (id, payloadBody) => {
+    try {
+      const { response, payload } = await apiRequest(
+        `/api/complaints/${id}/decision`,
+        {
+          method: "PUT",
+          body: JSON.stringify(payloadBody),
+        },
+      );
+
+      if (!response.ok || !payload?.success) {
+        const message =
+          payload?.message || "Failed to update technician decision";
+        return { success: false, message };
+      }
+
+      set((state) => ({
+        issues: state.issues.map((i) =>
+          i.id === id ? toIssue(payload.data) : i,
+        ),
+      }));
+
+      return {
+        success: true,
+        message: payload?.message || "Technician decision updated",
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error?.message || "Unable to update technician decision",
       };
     }
   },

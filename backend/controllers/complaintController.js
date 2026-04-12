@@ -1,6 +1,8 @@
 const Complaint = require("../models/Complaint");
 const technicianAssigner = require("../services/technicianAssigner");
+const { classifyComplaint } = require("../services/categoryDetector");
 const emailService = require("../services/emailService");
+const notificationService = require("../services/notificationService");
 const {
   generateComplaintReportAttachment,
 } = require("../services/excelReportService");
@@ -12,6 +14,24 @@ function triggerNotification(promise, label) {
         console.warn(`[notification] ${label} failed`, result);
       } else if (result?.partial) {
         console.warn(`[notification] ${label} partial delivery`, result);
+      }
+    })
+    .catch((error) => {
+      console.error(`[notification] ${label} crashed`, error.message);
+    });
+}
+
+function triggerNotificationBatch(promise, label) {
+  promise
+    .then((results) => {
+      const failures = Array.isArray(results)
+        ? results.filter((result) => !result?.success)
+        : [];
+
+      if (failures.length) {
+        console.warn(
+          `[notification] ${label} had ${failures.length} failure(s)`,
+        );
       }
     })
     .catch((error) => {
@@ -37,12 +57,26 @@ async function buildReportAttachment(complaint, meta) {
 // @access  Private
 exports.createComplaint = async (req, res) => {
   try {
+    if (req.user.role === "technician") {
+      return res.status(403).json({
+        success: false,
+        message: "Technicians are not allowed to report new issues",
+      });
+    }
+
     const { description, location, category, priority, autoAssign } = req.body;
+    const classification = classifyComplaint({
+      description,
+      category,
+    });
 
     const complaintData = {
       description,
       location,
-      category: category || "General",
+      category: classification.backendCategory,
+      primaryCategory: classification.primaryCategory,
+      secondaryCategory: classification.secondaryCategory || undefined,
+      classificationConfidence: classification.confidence,
       priority: priority || "Medium",
       userId: req.user._id, // Associate with logged-in user
     };
@@ -55,11 +89,31 @@ exports.createComplaint = async (req, res) => {
     const complaint = new Complaint(complaintData);
     await complaint.save();
 
+    triggerNotification(
+      notificationService.createNotification({
+        recipient: req.user._id,
+        title: "Issue submitted",
+        message: `Your issue at ${location} has been received and is being reviewed.`,
+        type: "info",
+        category: "complaint-created",
+        complaintId: complaint._id,
+        createdBy: req.user._id,
+      }),
+      `complaint-created-${complaint._id}`,
+    );
+
     // Auto-assign technician if requested
     let response = {
       success: true,
       message: "Complaint registered successfully",
       data: complaint,
+      classification: {
+        detectedType: classification.detectedType,
+        confidence: classification.confidence,
+        backendCategory: classification.backendCategory,
+        primaryCategory: classification.primaryCategory,
+        secondaryCategory: classification.secondaryCategory,
+      },
     };
 
     if (autoAssign === true || autoAssign === "true") {
@@ -76,6 +130,30 @@ exports.createComplaint = async (req, res) => {
 
         response.data = updatedComplaint;
         response.message = "Complaint registered and assigned to technician";
+
+        triggerNotificationBatch(
+          notificationService.createNotifications([
+            {
+              recipient: req.user._id,
+              title: "Issue assigned",
+              message: `Your issue at ${location} has been assigned to ${assignedTechnician.name}.`,
+              type: "info",
+              category: "complaint-assigned",
+              complaintId: complaint._id,
+              createdBy: req.user._id,
+            },
+            {
+              recipient: assignedTechnician._id,
+              title: "New issue assigned",
+              message: `You have been assigned a new issue at ${location}.`,
+              type: "warning",
+              category: "complaint-assigned",
+              complaintId: complaint._id,
+              createdBy: req.user._id,
+            },
+          ]),
+          `assignment-auto-notifications-${updatedComplaint._id}`,
+        );
 
         // Send assignment email notification (non-blocking)
         triggerNotification(
@@ -139,11 +217,8 @@ exports.getComplaints = async (req, res) => {
     if (req.user.role === "user") {
       query.userId = req.user._id;
     } else if (req.user.role === "technician") {
-      // Technicians see complaints in their category or assigned to them
-      query.$or = [
-        { category: req.user.specialization },
-        { technician: req.user._id },
-      ];
+      // Technicians can only see complaints assigned to them.
+      query.technician = req.user._id;
     }
     // Admins see all complaints
 
@@ -192,6 +267,17 @@ exports.getComplaint = async (req, res) => {
       });
     }
 
+    if (
+      req.user.role === "technician" &&
+      (!complaint.technician ||
+        complaint.technician._id.toString() !== req.user._id.toString())
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to view this complaint",
+      });
+    }
+
     res.json({
       success: true,
       data: complaint,
@@ -232,6 +318,17 @@ exports.updateComplaint = async (req, res) => {
       });
     }
 
+    if (
+      req.user.role === "technician" &&
+      (!complaint.technician ||
+        complaint.technician._id.toString() !== req.user._id.toString())
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to update this complaint",
+      });
+    }
+
     // Track old status for email notifications
     const oldStatus = complaint.status;
 
@@ -260,6 +357,28 @@ exports.updateComplaint = async (req, res) => {
 
     // Send notifications based on what was updated
     if (updates.status && updates.status !== oldStatus) {
+      const statusNotification = {
+        recipient: updatedComplaint.userId._id || updatedComplaint.userId,
+        title:
+          updates.status === "Resolved" ? "Issue resolved" : "Status updated",
+        message:
+          updates.status === "Resolved"
+            ? `Your issue at ${updatedComplaint.location} has been resolved.`
+            : `Your issue at ${updatedComplaint.location} is now ${updates.status}.`,
+        type: updates.status === "Resolved" ? "success" : "info",
+        category:
+          updates.status === "Resolved"
+            ? "complaint-resolved"
+            : "complaint-status",
+        complaintId: updatedComplaint._id,
+        createdBy: req.user._id,
+      };
+
+      triggerNotification(
+        notificationService.createNotification(statusNotification),
+        `status-notification-${updatedComplaint._id}`,
+      );
+
       // Status changed - send status update email
       const statusMessage =
         updates.statusMessage ||
@@ -321,7 +440,7 @@ exports.updateComplaint = async (req, res) => {
 
 // @desc    Delete complaint
 // @route   DELETE /api/complaints/:id
-// @access  Private/Admin
+// @access  Private
 exports.deleteComplaint = async (req, res) => {
   try {
     const complaint = await Complaint.findById(req.params.id);
@@ -333,8 +452,11 @@ exports.deleteComplaint = async (req, res) => {
       });
     }
 
-    // Only admins can delete complaints
-    if (req.user.role !== "admin") {
+    const isAdmin = req.user.role === "admin";
+    const isOwner = complaint.userId?.toString() === req.user._id.toString();
+
+    // Admin can delete any complaint, residents can delete only their own.
+    if (!isAdmin && !isOwner) {
       return res.status(403).json({
         success: false,
         message: "Not authorized to delete complaints",
@@ -416,6 +538,30 @@ exports.assignTechnician = async (req, res) => {
       .populate("userId", "name email phone")
       .populate("technician", "name email phone specialization");
 
+    triggerNotificationBatch(
+      notificationService.createNotifications([
+        {
+          recipient: updatedComplaint.userId._id || updatedComplaint.userId,
+          title: "Issue assigned",
+          message: `Your issue at ${updatedComplaint.location} has been assigned to ${assignedTechnician.name}.`,
+          type: "info",
+          category: "complaint-assigned",
+          complaintId: updatedComplaint._id,
+          createdBy: req.user._id,
+        },
+        {
+          recipient: assignedTechnician._id,
+          title: "New issue assigned",
+          message: `A new issue at ${updatedComplaint.location} has been assigned to you.`,
+          type: "warning",
+          category: "complaint-assigned",
+          complaintId: updatedComplaint._id,
+          createdBy: req.user._id,
+        },
+      ]),
+      `assignment-manual-notifications-${updatedComplaint._id}`,
+    );
+
     // Send assignment notification email to user and technician (non-blocking)
     triggerNotification(
       (async () => {
@@ -447,6 +593,196 @@ exports.assignTechnician = async (req, res) => {
       success: false,
       message: "Server error during assignment",
       error: error.message,
+    });
+  }
+};
+
+// @desc    Technician decision on assigned complaint
+// @route   PUT /api/complaints/:id/decision
+// @access  Private/Technician
+exports.updateTechnicianDecision = async (req, res) => {
+  try {
+    if (req.user.role !== "technician") {
+      return res.status(403).json({
+        success: false,
+        message: "Only technicians can perform this action",
+      });
+    }
+
+    const { action, note, rescheduleFor } = req.body;
+    const normalizedAction = String(action || "")
+      .trim()
+      .toLowerCase();
+
+    if (!["accept", "reject", "reschedule"].includes(normalizedAction)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid action. Use accept, reject, or reschedule",
+      });
+    }
+
+    const complaint = await Complaint.findById(req.params.id)
+      .populate("userId", "name email")
+      .populate("technician", "name email specialization");
+
+    if (!complaint) {
+      return res.status(404).json({
+        success: false,
+        message: "Complaint not found",
+      });
+    }
+
+    if (
+      !complaint.technician ||
+      complaint.technician._id.toString() !== req.user._id.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only decide on complaints assigned to you",
+      });
+    }
+
+    const safeNote = typeof note === "string" ? note.trim().slice(0, 300) : "";
+
+    if (normalizedAction === "accept") {
+      complaint.technicianDecision = "Accepted";
+      complaint.technicianDecisionAt = new Date();
+      complaint.technicianDecisionNote = safeNote || undefined;
+      if (complaint.status === "Pending") {
+        complaint.status = "In Progress";
+      }
+    }
+
+    if (normalizedAction === "reject") {
+      const previousTechnician = complaint.technician;
+
+      complaint.technicianDecision = "Rejected";
+      complaint.technicianDecisionAt = new Date();
+      complaint.technicianDecisionNote = safeNote || undefined;
+      complaint.status = "Pending";
+
+      let reassignedTechnician = null;
+      try {
+        reassignedTechnician = await technicianAssigner.assignTechnician(
+          complaint,
+          {
+            excludeTechnicianIds: [req.user._id],
+          },
+        );
+      } catch (reassignError) {
+        console.warn(
+          `[assignment] Reassign failed for complaint ${complaint._id}: ${reassignError.message}`,
+        );
+      }
+
+      if (reassignedTechnician) {
+        complaint.technician = reassignedTechnician._id;
+        complaint.assignedAt = new Date();
+        complaint.technicianDecision = "Pending";
+        complaint.technicianDecisionAt = undefined;
+        complaint.technicianDecisionNote = undefined;
+        complaint.scheduledFor = undefined;
+
+        triggerNotificationBatch(
+          notificationService.createNotifications([
+            {
+              recipient: complaint.userId._id || complaint.userId,
+              title: "Issue reassigned",
+              message: `Your issue at ${complaint.location} has been reassigned to ${reassignedTechnician.name}.`,
+              type: "info",
+              category: "complaint-reassignment",
+              complaintId: complaint._id,
+              createdBy: req.user._id,
+            },
+            {
+              recipient: reassignedTechnician._id,
+              title: "New issue assigned",
+              message: `A reassigned issue at ${complaint.location} has been assigned to you.`,
+              type: "warning",
+              category: "complaint-assigned",
+              complaintId: complaint._id,
+              createdBy: req.user._id,
+            },
+          ]),
+          `tech-reassign-${complaint._id}`,
+        );
+      } else {
+        complaint.technician = undefined;
+        complaint.assignedAt = undefined;
+
+        triggerNotification(
+          notificationService.createNotification({
+            recipient: complaint.userId._id || complaint.userId,
+            title: "Issue reassignment pending",
+            message: `Technician ${previousTechnician?.name || "assigned"} cannot take your issue at ${complaint.location}. Reassignment is pending.`,
+            type: "warning",
+            category: "complaint-reassignment",
+            complaintId: complaint._id,
+            createdBy: req.user._id,
+          }),
+          `tech-reject-${complaint._id}`,
+        );
+      }
+    }
+
+    if (normalizedAction === "reschedule") {
+      const parsedDate = new Date(rescheduleFor || "");
+      if (Number.isNaN(parsedDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: "Please provide a valid reschedule date/time",
+        });
+      }
+
+      if (parsedDate.getTime() < Date.now()) {
+        return res.status(400).json({
+          success: false,
+          message: "Reschedule time must be in the future",
+        });
+      }
+
+      complaint.technicianDecision = "Rescheduled";
+      complaint.technicianDecisionAt = new Date();
+      complaint.technicianDecisionNote = safeNote || undefined;
+      complaint.scheduledFor = parsedDate;
+
+      triggerNotification(
+        notificationService.createNotification({
+          recipient: complaint.userId._id || complaint.userId,
+          title: "Issue visit rescheduled",
+          message: `Your issue at ${complaint.location} has been rescheduled for ${parsedDate.toLocaleString()}.`,
+          type: "info",
+          category: "complaint-rescheduled",
+          complaintId: complaint._id,
+          createdBy: req.user._id,
+        }),
+        `tech-reschedule-${complaint._id}`,
+      );
+    }
+
+    await complaint.save();
+
+    const updatedComplaint = await Complaint.findById(complaint._id)
+      .populate("userId", "name email")
+      .populate("technician", "name email specialization");
+
+    res.json({
+      success: true,
+      message:
+        normalizedAction === "accept"
+          ? "Issue accepted"
+          : normalizedAction === "reject"
+            ? updatedComplaint.technician
+              ? "Issue rejected and reassigned"
+              : "Issue rejected and awaiting reassignment"
+            : "Issue rescheduled",
+      data: updatedComplaint,
+    });
+  } catch (error) {
+    console.error("Technician decision error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
     });
   }
 };

@@ -43,8 +43,16 @@ const ReportIssue = () => {
         description: "You need to be logged in to submit an issue report.",
         icon: <ShieldAlert className="h-4 w-4" />,
       });
+      return;
     }
-  }, [isAuthenticated]);
+
+    if (user?.role === "technician") {
+      toast.error("Technician access restricted", {
+        description: "Technicians cannot report new issues.",
+        icon: <ShieldAlert className="h-4 w-4" />,
+      });
+    }
+  }, [isAuthenticated, user?.role]);
 
   if (!isAuthenticated) {
     return (
@@ -69,6 +77,35 @@ const ReportIssue = () => {
             className="gradient-primary text-primary-foreground shadow-sm hover:shadow-glow transition-shadow"
           >
             Go to Home & Sign In
+          </Button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (user?.role === "technician") {
+    return (
+      <div className="max-w-md mx-auto mt-16">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-card rounded-2xl border border-border p-8 shadow-card text-center space-y-4"
+        >
+          <div className="h-14 w-14 rounded-full bg-warning/10 flex items-center justify-center mx-auto">
+            <ShieldAlert className="h-7 w-7 text-warning" />
+          </div>
+          <h2 className="text-xl font-display font-bold text-foreground">
+            Access Restricted
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            Technician accounts can update assigned issues but cannot submit new
+            issue reports.
+          </p>
+          <Button
+            onClick={() => navigate("/issues")}
+            className="gradient-primary text-primary-foreground shadow-sm hover:shadow-glow transition-shadow"
+          >
+            Go to My Issues
           </Button>
         </motion.div>
       </div>

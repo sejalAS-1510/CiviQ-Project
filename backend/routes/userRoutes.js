@@ -6,6 +6,7 @@ const {
   login,
   getProfile,
   updateProfile,
+  deleteMyAccount,
   getUsers,
   getUserById,
   updateUser,
@@ -21,6 +22,7 @@ router.post("/login", login);
 // Protected routes
 router.get("/profile", protect, getProfile);
 router.put("/profile", protect, updateProfile);
+router.delete("/profile", protect, deleteMyAccount);
 
 // Admin only routes
 router.get("/", protect, admin, getUsers);

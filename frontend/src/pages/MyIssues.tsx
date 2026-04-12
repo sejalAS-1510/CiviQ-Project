@@ -17,11 +17,21 @@ const statusFilters: { value: "all" | IssueStatus; label: string }[] = [
 const MyIssues = () => {
   const [filter, setFilter] = useState<"all" | IssueStatus>("all");
   const [search, setSearch] = useState("");
-  const { issues, loading, error, loadIssues, updateStatus, clearError } =
-    useIssueStore();
+  const {
+    issues,
+    loading,
+    error,
+    loadIssues,
+    updateStatus,
+    deleteIssue,
+    technicianDecision,
+    clearError,
+  } = useIssueStore();
   const { user, isAuthenticated } = useAuthStore();
 
-  const canChangeStatus = user?.role === "authority" || user?.role === "admin";
+  const canChangeStatus = user?.role === "technician" || user?.role === "admin";
+  const canDeleteIssues = user?.role === "admin" || user?.role === "resident";
+  const canTechnicianDecide = user?.role === "technician";
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -36,6 +46,84 @@ const MyIssues = () => {
     } else {
       toast.error("Failed to update status", { description: result.message });
     }
+  };
+
+  const handleDeleteIssue = async (id: string) => {
+    const confirmed = window.confirm(
+      "Delete this issue permanently? This action cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    const result = await deleteIssue(id);
+    if (result.success) {
+      toast.success("Issue deleted");
+      return;
+    }
+
+    toast.error("Failed to delete issue", {
+      description: result.message,
+    });
+  };
+
+  const handleTechnicianAccept = async (id: string) => {
+    const result = await technicianDecision(id, { action: "accept" });
+    if (result.success) {
+      toast.success("Issue accepted");
+      return;
+    }
+    toast.error("Failed to accept issue", { description: result.message });
+  };
+
+  const handleTechnicianReject = async (id: string) => {
+    const confirmed = window.confirm(
+      "Reject this assigned issue? It will be unassigned and pending reassignment.",
+    );
+    if (!confirmed) return;
+
+    const reason = window.prompt("Optional reason for rejection:", "") || "";
+    const result = await technicianDecision(id, {
+      action: "reject",
+      note: reason,
+    });
+    if (result.success) {
+      toast.success("Issue rejected");
+      return;
+    }
+    toast.error("Failed to reject issue", { description: result.message });
+  };
+
+  const handleTechnicianReschedule = async (id: string) => {
+    const raw = window.prompt(
+      "Enter reschedule date/time (YYYY-MM-DDTHH:mm)",
+      "",
+    );
+    if (!raw) return;
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      toast.error("Invalid date", {
+        description: "Use format YYYY-MM-DDTHH:mm",
+      });
+      return;
+    }
+
+    const note =
+      window.prompt(
+        "Optional note for resident (e.g., access not available):",
+        "",
+      ) || "";
+
+    const result = await technicianDecision(id, {
+      action: "reschedule",
+      rescheduleFor: parsed.toISOString(),
+      note,
+    });
+
+    if (result.success) {
+      toast.success("Issue rescheduled");
+      return;
+    }
+    toast.error("Failed to reschedule issue", { description: result.message });
   };
 
   const filtered = issues.filter((i) => {
@@ -117,6 +205,12 @@ const MyIssues = () => {
               delay={0.05 * i}
               showActions={canChangeStatus}
               onStatusChange={handleStatusChange}
+              canDelete={canDeleteIssues}
+              onDelete={handleDeleteIssue}
+              showTechnicianDecisionActions={canTechnicianDecide}
+              onAccept={handleTechnicianAccept}
+              onReject={handleTechnicianReject}
+              onReschedule={handleTechnicianReschedule}
             />
           ))}
           {!loading && filtered.length === 0 && (

@@ -7,6 +7,7 @@ const {
   getComplaint,
   updateComplaint,
   deleteComplaint,
+  updateTechnicianDecision,
   assignTechnician,
   getTechnicianStats,
 } = require("../controllers/complaintController");
@@ -69,8 +70,9 @@ router
   .route("/:id")
   .get(getComplaint)
   .put(updateComplaint)
-  .delete(admin, deleteComplaint);
+  .delete(deleteComplaint);
 
 router.put("/:id/assign", admin, assignTechnician);
+router.put("/:id/decision", updateTechnicianDecision);
 
 module.exports = router;

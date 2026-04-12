@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Home,
@@ -6,16 +7,30 @@ import {
   Bell,
   Settings,
   X,
-  Edit,
   User,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
+import { useNotificationStore } from "@/store/notificationStore";
 import civiqLogo from "@/assets/civiq-logo.png";
 
 interface AppSidebarProps {
   isOpen: boolean;
   onClose: () => void;
+}
+
+function getRoleLabel(role?: string) {
+  if (role === "technician") return "Technician";
+  if (role === "admin") return "Admin";
+  return "Resident";
+}
+
+function getRolePillClass(role?: string) {
+  if (role === "technician")
+    return "bg-amber-500/15 text-amber-700 border-amber-500/20";
+  if (role === "admin")
+    return "bg-rose-500/15 text-rose-700 border-rose-500/20";
+  return "bg-primary/15 text-primary border-primary/20";
 }
 
 const menuItems = [
@@ -51,9 +66,21 @@ const menuItems = [
   },
 ];
 
+function canShowMenuItem(label: string, role?: string) {
+  if (label === "Report Issue" && role === "technician") return false;
+  return true;
+}
+
 export function AppSidebar({ isOpen, onClose }: AppSidebarProps) {
   const location = useLocation();
   const { user, isAuthenticated } = useAuthStore();
+  const { unreadCount, loadUnreadCount } = useNotificationStore();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadUnreadCount();
+    }
+  }, [isAuthenticated, loadUnreadCount]);
 
   return (
     <AnimatePresence>
@@ -80,6 +107,7 @@ export function AppSidebar({ isOpen, onClose }: AppSidebarProps) {
             {/* Close button */}
             <button
               onClick={onClose}
+              title="Close sidebar"
               className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-accent transition-colors"
             >
               <X className="h-4 w-4 text-muted-foreground" />
@@ -103,6 +131,7 @@ export function AppSidebar({ isOpen, onClose }: AppSidebarProps) {
               {menuItems.map((item, i) => {
                 if (item.type === "header" || item.type === "subtitle")
                   return null;
+                if (!canShowMenuItem(item.label, user?.role)) return null;
                 if (item.type === "section") {
                   return (
                     <p
@@ -115,6 +144,8 @@ export function AppSidebar({ isOpen, onClose }: AppSidebarProps) {
                 }
                 const Icon = item.icon!;
                 const isActive = location.pathname === item.path;
+                const showUnreadBadge =
+                  item.path === "/notifications" && unreadCount > 0;
                 return (
                   <Link
                     key={item.path}
@@ -128,6 +159,11 @@ export function AppSidebar({ isOpen, onClose }: AppSidebarProps) {
                   >
                     <Icon className="h-4 w-4" />
                     <span>{item.label}</span>
+                    {showUnreadBadge && (
+                      <span className="ml-auto min-w-5 h-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -137,22 +173,40 @@ export function AppSidebar({ isOpen, onClose }: AppSidebarProps) {
             {isAuthenticated && user && (
               <div className="p-4 mx-3 mb-4 rounded-xl bg-accent/60 border border-border">
                 <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-full gradient-primary flex items-center justify-center shadow-sm">
                     <User className="h-4 w-4 text-primary-foreground" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground truncate">
                       {user.name}
                     </p>
-                    <p className="text-[10px] text-muted-foreground capitalize">
-                      {user.role}
-                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getRolePillClass(
+                          user.role,
+                        )}`}
+                      >
+                        {getRoleLabel(user.role)}
+                      </span>
+                      {user.role === "technician" && user.specialization && (
+                        <span className="text-[10px] text-muted-foreground">
+                          Specialist in {user.specialization}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <button className="mt-3 w-full flex items-center justify-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors">
-                  <Edit className="h-3 w-3" />
-                  Edit Profile
-                </button>
+                {user.role === "technician" && (
+                  <div className="mt-3 rounded-lg bg-background/70 border border-border px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      Technician profile
+                    </p>
+                    <p className="mt-1 text-xs text-foreground">
+                      Assigned work is matched to your specialization and active
+                      load.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </motion.aside>

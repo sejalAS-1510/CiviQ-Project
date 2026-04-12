@@ -15,7 +15,7 @@ const UserSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     match: [
-      /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
+      /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/,
       "Please add a valid email",
     ],
   },
@@ -46,14 +46,68 @@ const UserSchema = new mongoose.Schema({
   specialization: {
     type: String,
     enum: [
+      "Plumbing",
+      "Electrical",
+      "Cleaning",
+      "Security",
       "Infrastructure",
+      "Noise",
+      "General",
+      // Legacy values kept for backwards compatibility with existing data
       "Sanitation",
       "Utilities",
       "Public Safety",
       "Environment",
-      "General",
     ],
     default: "General",
+  },
+
+  specializations: [
+    {
+      type: String,
+      enum: [
+        "Plumbing",
+        "Electrical",
+        "Cleaning",
+        "Security",
+        "Infrastructure",
+        "Noise",
+        "General",
+        // Legacy values retained for compatibility
+        "Sanitation",
+        "Utilities",
+        "Public Safety",
+        "Environment",
+      ],
+    },
+  ],
+
+  isAvailable: {
+    type: Boolean,
+    default: true,
+  },
+
+  activeJobsCount: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+
+  serviceZones: [
+    {
+      type: String,
+      trim: true,
+    },
+  ],
+
+  skillMatrix: {
+    Plumbing: { type: Number, min: 1, max: 5, default: 3 },
+    Electrical: { type: Number, min: 1, max: 5, default: 3 },
+    Cleaning: { type: Number, min: 1, max: 5, default: 3 },
+    Security: { type: Number, min: 1, max: 5, default: 3 },
+    Infrastructure: { type: Number, min: 1, max: 5, default: 3 },
+    Noise: { type: Number, min: 1, max: 5, default: 3 },
+    General: { type: Number, min: 1, max: 5, default: 3 },
   },
 
   isActive: {
@@ -71,10 +125,27 @@ const UserSchema = new mongoose.Schema({
   },
 });
 
+UserSchema.pre("validate", function () {
+  if (this.role === "technician") {
+    if (
+      !Array.isArray(this.specializations) ||
+      this.specializations.length === 0
+    ) {
+      this.specializations = [this.specialization || "General"];
+    }
+
+    if (!this.specialization && this.specializations[0]) {
+      this.specialization = this.specializations[0];
+    }
+  } else if (!this.specialization) {
+    this.specialization = "General";
+  }
+});
+
 // Encrypt password before saving
-UserSchema.pre("save", async function (next) {
+UserSchema.pre("save", async function () {
   if (!this.isModified("password")) {
-    next();
+    return;
   }
 
   const salt = await bcrypt.genSalt(10);

@@ -1,12 +1,23 @@
 import { create } from "zustand";
 
-export type UserRole = "resident" | "authority" | "admin";
+export type UserRole = "resident" | "technician" | "admin";
+export type TechnicianSpecialization =
+  | "Plumbing"
+  | "Electrical"
+  | "Cleaning"
+  | "Security"
+  | "Infrastructure"
+  | "Noise"
+  | "General";
 
 export interface User {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+  specialization?: TechnicianSpecialization;
+  phone?: string;
+  address?: string;
   avatar?: string;
 }
 
@@ -21,11 +32,24 @@ interface AuthState {
     email: string;
     password: string;
     role: UserRole;
+    specialization?: TechnicianSpecialization;
   }) => Promise<{ success: boolean; message: string }>;
   loginWithCredentials: (payload: {
     email: string;
     password: string;
   }) => Promise<{ success: boolean; message: string }>;
+  updateProfile: (payload: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    address?: string;
+    password?: string;
+  }) => Promise<{ success: boolean; message: string }>;
+  deleteMyAccount: () => Promise<{ success: boolean; message: string }>;
+  deleteUserByEmail: (email: string) => Promise<{
+    success: boolean;
+    message: string;
+  }>;
   clearError: () => void;
   logout: () => void;
 }
@@ -35,15 +59,43 @@ const AUTH_STORAGE_KEY = "civiq_auth";
 type BackendRole = "user" | "technician" | "admin";
 
 function toBackendRole(role: UserRole): BackendRole {
-  if (role === "authority") return "technician";
+  if (role === "technician") return "technician";
   if (role === "admin") return "admin";
   return "user";
 }
 
 function fromBackendRole(role?: string): UserRole {
-  if (role === "technician") return "authority";
+  if (role === "technician") return "technician";
   if (role === "admin") return "admin";
   return "resident";
+}
+
+function normalizeStoredRole(role?: string): UserRole {
+  if (role === "authority") return "technician";
+  if (role === "technician") return "technician";
+  if (role === "admin") return "admin";
+  return "resident";
+}
+
+function normalizeStoredSpecialization(
+  specialization?: string,
+): TechnicianSpecialization | undefined {
+  const normalized = String(specialization || "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) return undefined;
+  if (normalized === "plumbing") return "Plumbing";
+  if (normalized === "electrical") return "Electrical";
+  if (normalized === "cleaning" || normalized === "sanitation")
+    return "Cleaning";
+  if (normalized === "security" || normalized === "public safety")
+    return "Security";
+  if (normalized === "infrastructure") return "Infrastructure";
+  if (normalized === "noise" || normalized === "environment") return "Noise";
+  if (normalized === "general" || normalized === "utilities") return "General";
+
+  return undefined;
 }
 
 function loadStoredAuth() {
@@ -57,8 +109,14 @@ function loadStoredAuth() {
     if (!parsed?.user || !parsed?.token) {
       return { user: null, token: null, isAuthenticated: false };
     }
+    const normalizedUser: User = {
+      ...parsed.user,
+      role: normalizeStoredRole(parsed.user.role),
+      specialization: normalizeStoredSpecialization(parsed.user.specialization),
+    };
+
     return {
-      user: parsed.user,
+      user: normalizedUser,
       token: parsed.token,
       isAuthenticated: true,
     };
@@ -93,7 +151,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: stored.isAuthenticated,
   loading: false,
   error: null,
-  signup: async ({ name, email, password, role }) => {
+  signup: async ({ name, email, password, role, specialization }) => {
     set({ loading: true, error: null });
     try {
       const response = await fetch(`/api/users/register`, {
@@ -106,6 +164,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           email,
           password,
           role: toBackendRole(role),
+          specialization,
         }),
       });
 
@@ -151,6 +210,11 @@ export const useAuthStore = create<AuthState>((set) => ({
         name: payload.data.name,
         email: payload.data.email,
         role: fromBackendRole(payload.data.role),
+        specialization: normalizeStoredSpecialization(
+          payload.data.specialization,
+        ),
+        phone: payload.data.phone,
+        address: payload.data.address,
       };
 
       persistAuth(user, payload.data.token);
@@ -166,6 +230,208 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch {
       const message =
         "Unable to reach server for login. Ensure the app server is running.";
+      set({ loading: false, error: message });
+      return { success: false, message };
+    }
+  },
+  updateProfile: async ({ name, email, phone, address, password }) => {
+    const { token, user } = useAuthStore.getState();
+
+    if (!token || !user) {
+      const message = "Please login again to update profile.";
+      set({ error: message });
+      return { success: false, message };
+    }
+
+    set({ loading: true, error: null });
+    try {
+      const payloadBody = {
+        name: typeof name === "string" ? name.trim() : undefined,
+        email: typeof email === "string" ? email.trim() : undefined,
+        phone: typeof phone === "string" ? phone.trim() : undefined,
+        address: typeof address === "string" ? address.trim() : undefined,
+        password,
+      };
+
+      if (payloadBody.phone && !/^\d{10}$/.test(payloadBody.phone)) {
+        const message = "Please enter a valid 10-digit phone number.";
+        set({ loading: false, error: message });
+        return { success: false, message };
+      }
+
+      const response = await fetch(`/api/users/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payloadBody),
+      });
+
+      const payload = await parseApiPayload(response);
+      if (!response.ok || !payload?.success) {
+        const message = payload?.message || "Failed to update profile";
+        set({ loading: false, error: message });
+        return { success: false, message };
+      }
+
+      const updatedUser: User = {
+        id: payload.data._id,
+        name: payload.data.name,
+        email: payload.data.email,
+        role: fromBackendRole(payload.data.role),
+        specialization: normalizeStoredSpecialization(
+          payload.data.specialization,
+        ),
+        phone: payload.data.phone,
+        address: payload.data.address,
+      };
+
+      const nextToken = payload.data.token || token;
+      persistAuth(updatedUser, nextToken);
+
+      set({
+        user: updatedUser,
+        token: nextToken,
+        loading: false,
+        error: null,
+      });
+
+      return {
+        success: true,
+        message: payload?.message || "Profile updated successfully",
+      };
+    } catch {
+      const message =
+        "Unable to reach server for profile update. Ensure the app server is running.";
+      set({ loading: false, error: message });
+      return { success: false, message };
+    }
+  },
+  deleteMyAccount: async () => {
+    const { token } = useAuthStore.getState();
+
+    if (!token) {
+      const message = "Please login again to delete your account.";
+      set({ error: message });
+      return { success: false, message };
+    }
+
+    set({ loading: true, error: null });
+    try {
+      const response = await fetch(`/api/users/profile`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const payload = await parseApiPayload(response);
+      if (!response.ok || !payload?.success) {
+        const message = payload?.message || "Failed to delete account";
+        set({ loading: false, error: message });
+        return { success: false, message };
+      }
+
+      clearPersistedAuth();
+      set({
+        user: null,
+        token: null,
+        isAuthenticated: false,
+        loading: false,
+        error: null,
+      });
+
+      return {
+        success: true,
+        message: payload?.message || "Account deleted successfully",
+      };
+    } catch {
+      const message =
+        "Unable to reach server to delete account. Ensure the app server is running.";
+      set({ loading: false, error: message });
+      return { success: false, message };
+    }
+  },
+  deleteUserByEmail: async (email: string) => {
+    const { token, user } = useAuthStore.getState();
+    const normalizedEmail = String(email || "")
+      .trim()
+      .toLowerCase();
+
+    if (!token || !user) {
+      const message = "Please login again to continue.";
+      set({ error: message });
+      return { success: false, message };
+    }
+
+    if (user.role !== "admin") {
+      const message = "Only admins can delete other accounts.";
+      set({ error: message });
+      return { success: false, message };
+    }
+
+    if (!normalizedEmail) {
+      const message = "Please enter an email to delete.";
+      set({ error: message });
+      return { success: false, message };
+    }
+
+    if (normalizedEmail === user.email.toLowerCase()) {
+      const message =
+        "Use 'Delete my account' in Danger Zone to remove your own account.";
+      set({ error: message });
+      return { success: false, message };
+    }
+
+    set({ loading: true, error: null });
+    try {
+      const usersResponse = await fetch(`/api/users?page=1&limit=2000`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const usersPayload = await parseApiPayload(usersResponse);
+      if (!usersResponse.ok || !usersPayload?.success) {
+        const message = usersPayload?.message || "Unable to fetch users";
+        set({ loading: false, error: message });
+        return { success: false, message };
+      }
+
+      const targetUser = (usersPayload?.data || []).find(
+        (item: { email?: string; _id?: string }) =>
+          String(item?.email || "").toLowerCase() === normalizedEmail,
+      );
+
+      if (!targetUser?._id) {
+        const message = "User not found for the provided email.";
+        set({ loading: false, error: message });
+        return { success: false, message };
+      }
+
+      const deleteResponse = await fetch(`/api/users/${targetUser._id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const deletePayload = await parseApiPayload(deleteResponse);
+      if (!deleteResponse.ok || !deletePayload?.success) {
+        const message = deletePayload?.message || "Failed to delete user";
+        set({ loading: false, error: message });
+        return { success: false, message };
+      }
+
+      set({ loading: false, error: null });
+      return {
+        success: true,
+        message: deletePayload?.message || "User deleted successfully",
+      };
+    } catch {
+      const message =
+        "Unable to reach server to delete user. Ensure the app server is running.";
       set({ loading: false, error: message });
       return { success: false, message };
     }

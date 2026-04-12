@@ -6,6 +6,7 @@
 
 const User = require("../models/User");
 const Complaint = require("../models/Complaint");
+const { mapComplaintCategoryToSpecialization } = require("./categoryDetector");
 
 /**
  * Assigns a complaint to the most suitable technician
@@ -21,23 +22,38 @@ const Complaint = require("../models/Complaint");
  * @returns {Promise<Object>} - Assigned technician object
  * @throws {Error} - If no suitable technician found
  */
-exports.assignTechnician = async (complaint) => {
+exports.assignTechnician = async (complaint, options = {}) => {
   try {
-    const { category, priority, _id: complaintId } = complaint;
+    const { category, primaryCategory, priority } = complaint;
+    const excludedTechnicianIds = Array.isArray(options.excludeTechnicianIds)
+      ? options.excludeTechnicianIds
+      : [];
+    const normalizedCategory = primaryCategory || category;
+    const targetSpecialization =
+      mapComplaintCategoryToSpecialization(normalizedCategory);
+    const specializationCandidates =
+      getSpecializationCandidates(targetSpecialization);
 
     // Step 1: Find all active technicians with matching specialization
     const matchingTechnicians = await User.find({
       role: "technician",
-      specialization: category,
       isActive: true,
+      isAvailable: true,
+      _id: { $nin: excludedTechnicianIds },
+      $or: [
+        { specialization: { $in: specializationCandidates } },
+        { specializations: { $in: specializationCandidates } },
+      ],
     });
 
     if (matchingTechnicians.length === 0) {
       // Fallback: Get technicians from "General" specialization
       const generalTechnicians = await User.find({
         role: "technician",
-        specialization: "General",
         isActive: true,
+        isAvailable: true,
+        _id: { $nin: excludedTechnicianIds },
+        $or: [{ specialization: "General" }, { specializations: "General" }],
       });
 
       if (generalTechnicians.length === 0) {
@@ -48,6 +64,7 @@ exports.assignTechnician = async (complaint) => {
         generalTechnicians,
         priority,
         "general",
+        "General",
       );
     }
 
@@ -56,12 +73,27 @@ exports.assignTechnician = async (complaint) => {
       matchingTechnicians,
       priority,
       "specialized",
+      targetSpecialization,
     );
   } catch (error) {
     console.error("Technician assignment error:", error);
     throw error;
   }
 };
+
+function getSpecializationCandidates(targetSpecialization) {
+  const map = {
+    Plumbing: ["Plumbing", "Utilities"],
+    Electrical: ["Electrical", "Utilities"],
+    Cleaning: ["Cleaning", "Sanitation"],
+    Security: ["Security", "Public Safety"],
+    Infrastructure: ["Infrastructure"],
+    Noise: ["Noise", "Environment"],
+    General: ["General"],
+  };
+
+  return map[targetSpecialization] || ["General"];
+}
 
 /**
  * Selects the best technician from a list based on multiple factors
@@ -78,7 +110,12 @@ exports.assignTechnician = async (complaint) => {
  * @param {String} matchType - Type of match (specialized/general)
  * @returns {Promise<Object>} - Best technician object
  */
-async function selectBestTechnician(technicians, priority, matchType) {
+async function selectBestTechnician(
+  technicians,
+  priority,
+  matchType,
+  targetSpecialization = "General",
+) {
   // Step 1: Get active complaints count for each technician
   const technicianScores = await Promise.all(
     technicians.map(async (tech) => {
@@ -104,10 +141,25 @@ async function selectBestTechnician(technicians, priority, matchType) {
         avgResolutionTime: resolutionStats.avgTime,
         totalResolved: resolutionStats.totalResolved,
         experience: calculateExperienceScore(resolvedComplaints),
+        skillScore: getSkillScore(tech, targetSpecialization),
+        recentPenalty: await getRecentAssignmentPenalty(tech._id),
         matchBonus: matchType === "specialized" ? 10 : 0,
       };
     }),
   );
+
+  if (technicianScores.length > 0) {
+    const updateOps = technicianScores.map((score) => ({
+      updateOne: {
+        filter: { _id: score.technician._id },
+        update: { $set: { activeJobsCount: score.activeComplaints } },
+      },
+    }));
+
+    if (updateOps.length) {
+      await User.bulkWrite(updateOps, { ordered: false });
+    }
+  }
 
   // Step 2: Calculate composite score for each technician
   const scoredTechnicians = technicianScores.map((score) => {
@@ -119,25 +171,30 @@ async function selectBestTechnician(technicians, priority, matchType) {
         : priority === "Medium"
           ? experienceScore * 0.1
           : 0;
-    const resolutionBonus = 100 - Math.min(score.avgResolutionTime, 100);
+    const resolutionBonus = normalizeResolutionScore(score.avgResolutionTime);
 
     // Weighted scoring algorithm
     const totalScore =
-      workloadScore * 0.4 + // 40% - fewer active complaints
-      experienceScore * 0.3 + // 30% - more experience
-      resolutionBonus * 0.2 + // 20% - faster resolution
+      workloadScore * 0.3 + // 30% - fewer active complaints
+      experienceScore * 0.2 + // 20% - more experience
+      resolutionBonus * 0.15 + // 15% - faster resolution
+      score.skillScore * 0.25 + // 25% - category specific skill
       score.matchBonus * 0.1 + // 10% - specialization match bonus
       priorityBonus; // boosts experienced tech for high-priority issues
 
+    const adjustedScore = totalScore - score.recentPenalty;
+
     return {
       ...score,
-      totalScore,
+      totalScore: adjustedScore,
       scoreBreakdown: {
         workload: workloadScore,
         experience: experienceScore,
         resolution: resolutionBonus,
+        skill: score.skillScore,
         matchBonus: score.matchBonus,
         priorityBonus,
+        recentPenalty: score.recentPenalty,
       },
     };
   });
@@ -157,6 +214,48 @@ async function selectBestTechnician(technicians, priority, matchType) {
   );
 
   return bestMatch.technician;
+}
+
+function normalizeResolutionScore(avgResolutionTimeHours) {
+  return Math.max(0, 100 - Math.min(avgResolutionTimeHours, 120) * 0.83);
+}
+
+function getTechnicianSpecializations(technician) {
+  if (
+    Array.isArray(technician.specializations) &&
+    technician.specializations.length
+  ) {
+    return technician.specializations;
+  }
+  return [technician.specialization || "General"];
+}
+
+function getSkillScore(technician, specialization) {
+  const skillMatrix = technician.skillMatrix || {};
+  const directSkill = Number(skillMatrix[specialization]);
+  if (!Number.isNaN(directSkill) && directSkill > 0) {
+    return Math.min(100, directSkill * 20);
+  }
+
+  const specializations = getTechnicianSpecializations(technician);
+  if (specializations.includes(specialization)) {
+    return 70;
+  }
+
+  if (specializations.includes("General")) {
+    return 55;
+  }
+
+  return 40;
+}
+
+async function getRecentAssignmentPenalty(technicianId) {
+  const inLast24Hours = await Complaint.countDocuments({
+    technician: technicianId,
+    assignedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+  });
+
+  return Math.min(inLast24Hours * 3, 15);
 }
 
 /**

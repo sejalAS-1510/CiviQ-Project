@@ -4,7 +4,11 @@ import { X, User, Mail, Lock, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuthStore, UserRole } from "@/store/authStore";
+import {
+  useAuthStore,
+  UserRole,
+  TechnicianSpecialization,
+} from "@/store/authStore";
 import { toast } from "sonner";
 
 interface AuthModalProps {
@@ -18,6 +22,8 @@ export function AuthModal({ open, onOpenChange }: AuthModalProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("resident");
+  const [specialization, setSpecialization] =
+    useState<TechnicianSpecialization>("Electrical");
   const { signup, loginWithCredentials, loading, error, clearError } =
     useAuthStore();
 
@@ -25,7 +31,13 @@ export function AuthModal({ open, onOpenChange }: AuthModalProps) {
     e.preventDefault();
 
     if (mode === "signup") {
-      const result = await signup({ name, email, password, role });
+      const result = await signup({
+        name,
+        email,
+        password,
+        role,
+        specialization: role === "technician" ? specialization : undefined,
+      });
       if (result.success) {
         toast.success("Signup successful", {
           description: "Your account is created. Please login to continue.",
@@ -59,7 +71,11 @@ export function AuthModal({ open, onOpenChange }: AuthModalProps) {
 
   const roles: { value: UserRole; label: string; desc: string }[] = [
     { value: "resident", label: "Resident", desc: "Report and track issues" },
-    { value: "authority", label: "Authority", desc: "Manage assigned issues" },
+    {
+      value: "technician",
+      label: "Technician",
+      desc: "Manage assigned issues",
+    },
     { value: "admin", label: "Admin", desc: "Full system management" },
   ];
 
@@ -182,6 +198,30 @@ export function AuthModal({ open, onOpenChange }: AuthModalProps) {
                         </button>
                       ))}
                     </div>
+
+                    {role === "technician" && (
+                      <div className="space-y-2 pt-2">
+                        <Label className="text-sm font-medium">
+                          Technician Specialization
+                        </Label>
+                        <select
+                          value={specialization}
+                          onChange={(e) =>
+                            setSpecialization(
+                              e.target.value as TechnicianSpecialization,
+                            )
+                          }
+                          className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="Electrical">Electrician</option>
+                          <option value="Plumbing">Plumber</option>
+                          <option value="Cleaning">Cleaning</option>
+                          <option value="Security">Security</option>
+                          <option value="Infrastructure">Infrastructure</option>
+                          <option value="Noise">Noise Control</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
                 )}
 

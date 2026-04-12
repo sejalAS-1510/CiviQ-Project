@@ -8,7 +8,13 @@ interface IssueCardProps {
   issue: Issue;
   delay?: number;
   onStatusChange?: (id: string, status: Issue["status"]) => void;
+  onDelete?: (id: string) => void;
+  canDelete?: boolean;
   showActions?: boolean;
+  showTechnicianDecisionActions?: boolean;
+  onAccept?: (id: string) => void;
+  onReject?: (id: string) => void;
+  onReschedule?: (id: string) => void;
 }
 
 const categoryLabels: Record<string, string> = {
@@ -25,7 +31,13 @@ export function IssueCard({
   issue,
   delay = 0,
   onStatusChange,
+  onDelete,
+  canDelete,
   showActions,
+  showTechnicianDecisionActions,
+  onAccept,
+  onReject,
+  onReschedule,
 }: IssueCardProps) {
   return (
     <motion.div
@@ -48,6 +60,11 @@ export function IssueCard({
               {categoryLabels[issue.category] || issue.category}
             </span>
             <StatusBadge status={issue.status} />
+            {issue.technicianDecision && (
+              <span className="text-[10px] rounded-full px-2 py-0.5 bg-muted text-muted-foreground border border-border uppercase tracking-wide font-semibold">
+                {issue.technicianDecision}
+              </span>
+            )}
           </div>
           <p className="text-sm mt-2 line-clamp-2 text-[#b0c4b0]">
             {issue.description}
@@ -62,6 +79,16 @@ export function IssueCard({
               {formatDistanceToNow(issue.reportedAt, { addSuffix: true })}
             </span>
           </div>
+          {issue.scheduledFor && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Rescheduled for: {issue.scheduledFor.toLocaleString()}
+            </p>
+          )}
+          {issue.technicianDecisionNote && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Note: {issue.technicianDecisionNote}
+            </p>
+          )}
         </div>
       </div>
 
@@ -82,6 +109,37 @@ export function IssueCard({
                 : s.charAt(0).toUpperCase() + s.slice(1)}
             </button>
           ))}
+          {canDelete && onDelete && (
+            <button
+              onClick={() => onDelete(issue.id)}
+              className="text-xs px-3 py-1.5 rounded-md font-medium transition-all bg-red-100 text-red-700 hover:bg-red-200"
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      )}
+
+      {showTechnicianDecisionActions && (
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
+          <button
+            onClick={() => onAccept?.(issue.id)}
+            className="text-xs px-3 py-1.5 rounded-md font-medium transition-all bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+          >
+            Accept
+          </button>
+          <button
+            onClick={() => onReschedule?.(issue.id)}
+            className="text-xs px-3 py-1.5 rounded-md font-medium transition-all bg-amber-100 text-amber-700 hover:bg-amber-200"
+          >
+            Reschedule
+          </button>
+          <button
+            onClick={() => onReject?.(issue.id)}
+            className="text-xs px-3 py-1.5 rounded-md font-medium transition-all bg-red-100 text-red-700 hover:bg-red-200"
+          >
+            Reject
+          </button>
         </div>
       )}
     </motion.div>
