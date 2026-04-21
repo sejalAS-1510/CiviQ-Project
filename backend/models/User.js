@@ -49,6 +49,10 @@ const UserSchema = new mongoose.Schema({
     required: true,
   },
 
+  avatar: {
+    type: String, // URL or filename for profile picture
+    default: "",
+  },
   specialization: {
     type: String,
     enum: [

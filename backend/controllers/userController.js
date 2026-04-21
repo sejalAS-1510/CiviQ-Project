@@ -202,6 +202,7 @@ exports.login = async (req, res) => {
           specialization: user.specialization,
           specializations: user.specializations,
           ownerId: user.ownerId,
+          avatar: user.avatar,
           token: generateToken(user._id),
         },
       });
