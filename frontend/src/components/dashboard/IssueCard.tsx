@@ -186,11 +186,11 @@ export function IssueCard({
           <p className="text-sm mt-2 line-clamp-2 text-[#b0c4b0]">
             {issue.description}
           </p>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1 text-white">
             <MapPin className="h-3 w-3" />
             {issue.location}
           </span>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1 text-white">
             <Clock className="h-3 w-3" />
             {formatDistanceToNow(issue.reportedAt, { addSuffix: true })}
           </span>

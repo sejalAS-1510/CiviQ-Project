@@ -33,7 +33,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           setAuthOpen(true);
         }}
       />
-      <main className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto relative z-10 bg-[#99dbc3]">
+      <main className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto relative z-10">
         {isProtected ? (
           <RequireAuth
             onAuthClick={() => {
