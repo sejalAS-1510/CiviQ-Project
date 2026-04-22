@@ -2,8 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-// https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig({
   server: {
     host: "::",
     port: 8080,
@@ -21,50 +20,21 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
+
+  // ✅ REMOVE chunk splitting completely
   build: {
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes("node_modules")) return;
-
-          if (
-            id.includes("node_modules/react") ||
-            id.includes("node_modules/react-dom") ||
-            id.includes("node_modules/react-router")
-          ) {
-            return "react-vendor";
-          }
-
-          if (
-            id.includes("node_modules/@radix-ui") ||
-            id.includes("node_modules/lucide-react")
-          ) {
-            return "ui-vendor";
-          }
-
-          if (
-            id.includes("node_modules/recharts") ||
-            id.includes("node_modules/framer-motion")
-          ) {
-            return "viz-vendor";
-          }
-
-          if (
-            id.includes("node_modules/zustand") ||
-            id.includes("node_modules/@tanstack/react-query")
-          ) {
-            return "state-vendor";
-          }
-
-          return "vendor";
-        },
+        manualChunks: undefined,
       },
     },
   },
+
   plugins: [react()],
+
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
-}));
+});
