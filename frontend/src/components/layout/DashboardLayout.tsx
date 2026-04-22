@@ -20,7 +20,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const isProtected = protectedRoutes.includes(location.pathname);
 
   return (
-    <div className="bg-page-gradient">
+    <div className="bg-page-gradient min-h-screen flex w-full">
       <AppSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <TopBar
         onMenuClick={() => setSidebarOpen(true)}
@@ -33,7 +33,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           setAuthOpen(true);
         }}
       />
-      <main className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto relative z-10">
+      <main className="flex-1 p-4 sm:p-6 lg:p-8 w-full relative z-10">
         {isProtected ? (
           <RequireAuth
             onAuthClick={() => {

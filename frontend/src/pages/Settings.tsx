@@ -353,7 +353,7 @@ const SettingsPage = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="w-full px-4 sm:px-8">
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -376,7 +376,6 @@ const SettingsPage = () => {
             </p>
             {/* ── Account Snapshot: avatar-left / info-right layout ── */}
             <div className="flex items-start gap-5">
-
               {/* LEFT: Avatar + Change/Remove buttons + accepted formats */}
               <div className="flex flex-col items-center gap-1.5 shrink-0">
                 <img
@@ -494,7 +493,9 @@ const SettingsPage = () => {
                     {ratingLoading ? (
                       <span className="text-muted-foreground">Loading...</span>
                     ) : avgRating === null ? (
-                      <span className="text-muted-foreground">No ratings yet</span>
+                      <span className="text-muted-foreground">
+                        No ratings yet
+                      </span>
                     ) : (
                       <span className="text-yellow-700 font-medium flex items-center gap-1">
                         {avgRating.toFixed(2)} / 5
@@ -521,7 +522,6 @@ const SettingsPage = () => {
                   </div>
                 )}
               </div>
-
             </div>
           </motion.div>
 
