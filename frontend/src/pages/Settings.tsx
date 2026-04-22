@@ -372,83 +372,131 @@ const SettingsPage = () => {
             className={`rounded-2xl border p-5 shadow-card ${user?.role === "technician" ? "bg-gradient-to-br from-amber-50 to-white border-amber-200" : "bg-card border-border"}`}
           >
             <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold mb-4 text-center">
-              Account Snapshot
+              Account
             </p>
-            <div className="flex flex-col items-center gap-4">
-              <img
-                src={user?.avatar || "/default-avatar.png"}
-                alt="User avatar"
-                className="w-20 h-20 rounded-full object-cover border bg-gray-100"
-              />
-              <div className="flex gap-2 mt-1 w-full justify-center">
-                <label className="inline-block">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleAvatarChange}
-                    disabled={avatarUploading || loading}
-                  />
+            {/* ── Account Snapshot: avatar-left / info-right layout ── */}
+            <div className="flex items-start gap-5">
+
+              {/* LEFT: Avatar + Change/Remove buttons + accepted formats */}
+              <div className="flex flex-col items-center gap-1.5 shrink-0">
+                <img
+                  src={user?.avatar || "/default-avatar.png"}
+                  alt="User avatar"
+                  className="w-20 h-20 rounded-full object-cover border bg-gray-100"
+                />
+                {/* Buttons sit just below avatar with a small top gap */}
+                <div className="flex gap-2 mt-1">
+                  <label className="inline-block">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleAvatarChange}
+                      disabled={avatarUploading || loading}
+                    />
+                    <Button
+                      asChild
+                      size="sm"
+                      className="px-3 text-xs"
+                      disabled={avatarUploading || loading}
+                      variant="secondary"
+                    >
+                      <span>{avatarUploading ? "Uploading..." : "Change"}</span>
+                    </Button>
+                  </label>
                   <Button
-                    asChild
+                    type="button"
                     size="sm"
-                    className="px-4"
-                    disabled={avatarUploading || loading}
-                    variant="secondary"
+                    className="px-3 text-xs"
+                    variant="outline"
+                    disabled={
+                      removingAvatar ||
+                      avatarUploading ||
+                      loading ||
+                      !user?.avatar
+                    }
+                    onClick={handleRemoveAvatar}
                   >
-                    <span>{avatarUploading ? "Uploading..." : "Change"}</span>
+                    {removingAvatar ? "Removing..." : "Remove"}
                   </Button>
-                </label>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="px-4"
-                  variant="outline"
-                  disabled={
-                    removingAvatar ||
-                    avatarUploading ||
-                    loading ||
-                    !user?.avatar
-                  }
-                  onClick={handleRemoveAvatar}
-                >
-                  {removingAvatar ? "Removing..." : "Remove"}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Accepted formats: JPG, PNG, GIF. Max size: 5MB.
-              </p>
-              {avatarError && (
-                <div className="text-xs text-red-600 mt-1 border border-red-200 bg-red-50 rounded p-2 w-full text-center">
-                  {avatarError}
                 </div>
-              )}
-              {/* Formal snapshot details */}
-              <div className="w-full mt-4 flex flex-col items-center gap-1">
-                <h3 className="text-lg font-semibold text-foreground mb-1">
-                  {user?.name || "Profile"}
-                </h3>
-                <span
-                  className={`inline-flex h-fit items-center rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide ${getRoleBadgeClass(user?.role)}`}
-                >
-                  {getRoleLabel(user?.role)}
-                </span>
-                {/* Technician average rating and all feedback */}
+                {/* Accepted formats — tight to buttons, subtle */}
+                <p className="text-[10px] text-gray-500 leading-tight text-center mt-1">
+                  JPG, PNG, GIF · Max 5MB
+                </p>
+                {avatarError && (
+                  <div className="text-xs text-red-600 mt-1 border border-red-200 bg-red-50 rounded p-2 text-center">
+                    {avatarError}
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT: Name + role badge + email + meta */}
+              <div className="flex flex-col justify-center gap-3 min-w-0 pt-1">
+                {/* Name + role badge on same row */}
+                <div className="flex items-center gap-4 flex-wrap">
+                  <h3 className="text-base font-semibold text-foreground leading-tight">
+                    {user?.name || "Profile"}
+                  </h3>
+                  <span
+                    className={`inline-flex h-fit items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getRoleBadgeClass(user?.role)}`}
+                  >
+                    {getRoleLabel(user?.role)}
+                  </span>
+                </div>
+
+                {/* Email */}
+                <p className="text-sm text-muted-foreground truncate">
+                  {user?.email || "Not set"}
+                </p>
+
+                {/* Technician-only: specialization */}
                 {user?.role === "technician" && (
-                  <div className="mt-2 text-xs flex flex-col items-center w-full">
+                  <p className="text-xs text-muted-foreground">
                     <span className="font-semibold uppercase tracking-widest">
+                      Specialization:{" "}
+                    </span>
+                    {user?.specialization || "General"}
+                  </p>
+                )}
+
+                {/* Organization */}
+                <div className="text-xs text-muted-foreground">
+                  <span className="font-semibold uppercase tracking-widest">
+                    Organization:{" "}
+                  </span>
+                  {orgLoading ? (
+                    "Loading..."
+                  ) : orgError ? (
+                    <span className="text-red-500">{orgError}</span>
+                  ) : organization ? (
+                    <>
+                      <span className="text-foreground font-medium">
+                        {organization.name}
+                      </span>
+                      {organization.address && (
+                        <span className="ml-1 text-muted-foreground">
+                          ({organization.address})
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    "Not set"
+                  )}
+                </div>
+
+                {/* Technician average rating */}
+                {user?.role === "technician" && (
+                  <div className="mt-1 text-xs flex flex-col gap-0.5">
+                    <span className="font-semibold uppercase tracking-widest text-muted-foreground">
                       Average Rating:
                     </span>
                     {ratingLoading ? (
-                      <span className="ml-1 text-muted-foreground">
-                        Loading...
-                      </span>
+                      <span className="text-muted-foreground">Loading...</span>
                     ) : avgRating === null ? (
-                      <span className="ml-1 text-muted-foreground">
-                        No ratings yet
-                      </span>
+                      <span className="text-muted-foreground">No ratings yet</span>
                     ) : (
-                      <span className="ml-1 text-yellow-700 font-medium flex items-center gap-1">
+                      <span className="text-yellow-700 font-medium flex items-center gap-1">
                         {avgRating.toFixed(2)} / 5
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
@@ -464,61 +512,16 @@ const SettingsPage = () => {
                             d="M12 17.25l-6.172 3.245 1.179-6.873L2 9.755l6.908-1.004L12 2.25l3.092 6.501L22 9.755l-5.007 4.867 1.179 6.873z"
                           />
                         </svg>
-                        <span className="ml-1 text-muted-foreground">
+                        <span className="text-muted-foreground">
                           ({ratingCount})
                         </span>
                       </span>
                     )}
-                    {/* All ratings/feedback section */}
                     <AllTechnicianRatings technicianId={user.id} />
                   </div>
                 )}
-                <div className="mt-2 text-sm text-muted-foreground text-center">
-                  <div className="font-medium text-foreground">
-                    {user?.email || "Not set"}
-                  </div>
-                  <div className="text-xs mt-1">
-                    <span className="font-semibold uppercase tracking-widest">
-                      Specialization:
-                    </span>
-                    <span className="ml-1 text-foreground font-medium">
-                      {user?.role === "technician"
-                        ? user?.specialization || "General"
-                        : user?.role === "admin"
-                          ? "Admin"
-                          : "Resident"}
-                    </span>
-                  </div>
-                  {/* Organization info */}
-                  <div className="text-xs mt-2 flex flex-col items-center">
-                    <span className="font-semibold uppercase tracking-widest">
-                      Organization:
-                    </span>
-                    {orgLoading ? (
-                      <span className="ml-1 text-muted-foreground">
-                        Loading...
-                      </span>
-                    ) : orgError ? (
-                      <span className="ml-1 text-red-500">{orgError}</span>
-                    ) : organization ? (
-                      <>
-                        <span className="ml-1 text-foreground font-medium">
-                          {organization.name}
-                        </span>
-                        {organization.address && (
-                          <span className="ml-1 text-muted-foreground">
-                            {organization.address}
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <span className="ml-1 text-muted-foreground">
-                        Not set
-                      </span>
-                    )}
-                  </div>
-                </div>
               </div>
+
             </div>
           </motion.div>
 
