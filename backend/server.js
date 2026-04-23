@@ -3,6 +3,7 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
+
 const PORT = Number(process.env.PORT || 5000);
 
 const connectDB = require("./config/db");
@@ -10,79 +11,64 @@ const connectDB = require("./config/db");
 const complaintRoutes = require("./routes/complaintRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const userRoutes = require("./routes/userRoutes");
+const organizationRoutes = require("./routes/organizationRoutes");
 
 const app = express();
+
 const frontendDistPath = path.join(__dirname, "..", "frontend", "dist");
 const frontendIndexPath = path.join(frontendDistPath, "index.html");
 
-// CORS configuration for development
-// Allow configured origins, localhost, and local network hosts in development.
-const localhostOriginRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
-const localNetworkOriginRegex =
-  /^https?:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?$/;
+// ====================== ✅ FIXED CORS ======================
 
-const configuredOrigins = [
-  process.env.FRONTEND_URL,
-  ...(process.env.CORS_ALLOWED_ORIGINS || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean),
-]
-  .filter(Boolean)
-  .map((origin) => origin.replace(/\/$/, ""));
+// Add your Vercel domains here OR use env variable
+const allowedOrigins = (
+  process.env.CORS_ALLOWED_ORIGINS ||
+  "https://civiq-omega.vercel.app,https://civiq-git-main-sejalas-1510s-projects.vercel.app"
+)
+  .split(",")
+  .map((o) => o.trim());
 
-const isDevelopment = process.env.NODE_ENV !== "production";
+// Allow localhost for development
+const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (e.g., local files, mobile apps)
-      if (!origin) return callback(null, true);
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // allow Postman / mobile
 
-      const normalizedOrigin = origin.replace(/\/$/, "");
-
-      if (configuredOrigins.includes(normalizedOrigin)) {
+      if (allowedOrigins.includes(origin) || localhostRegex.test(origin)) {
         return callback(null, true);
       }
 
-      if (localhostOriginRegex.test(normalizedOrigin)) {
-        return callback(null, true);
-      }
-
-      if (isDevelopment && localNetworkOriginRegex.test(normalizedOrigin)) {
-        return callback(null, true);
-      }
-
-      callback(new Error("CORS policy: Origin not allowed"));
+      return callback(new Error("CORS not allowed: " + origin));
     },
     credentials: true,
   }),
 );
 
+// ==========================================================
+
 app.use(express.json());
 
-// Configure multer for file uploads
+// ====================== FILE UPLOAD ======================
 const multer = require("multer");
 
-// Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "uploads", "issue-images");
+
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Configure multer storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
-    // Generate unique filename with timestamp
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
     cb(null, "complaint-" + uniqueSuffix + path.extname(file.originalname));
   },
 });
 
-// File filter to allow only images
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith("image/")) {
     cb(null, true);
@@ -92,38 +78,37 @@ const fileFilter = (req, file, cb) => {
 };
 
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+  storage,
+  fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 5 * 1024 * 1024,
   },
 });
 
-// Make uploads directory static
+// Static folders
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use(
   "/uploads/avatars",
   express.static(path.join(__dirname, "uploads", "avatars")),
 );
 
-// Serve the built frontend from the same origin when available
+// ==========================================================
+
+// Serve frontend (optional, not needed if using Vercel)
 if (fs.existsSync(frontendDistPath)) {
   app.use(express.static(frontendDistPath));
-} else {
-  console.warn(
-    "[server] frontend/dist not found. Run the frontend build before using single-port mode.",
-  );
 }
 
-// connect database
+// ====================== DATABASE ======================
 connectDB();
 
-// test route
+// ====================== ROUTES ======================
+
+// Test routes
 app.get("/", (req, res) => {
   res.send("CiviQ backend running successfully");
 });
 
-// test route for debugging
 app.post("/test", (req, res) => {
   console.log("Test request body:", req.body);
   res.json({ success: true, received: req.body });
@@ -133,10 +118,9 @@ app.post("/test", (req, res) => {
 app.use("/api/users", userRoutes);
 app.use("/api/complaints", complaintRoutes);
 app.use("/api/notifications", notificationRoutes);
-const organizationRoutes = require("./routes/organizationRoutes");
 app.use("/api/organizations", organizationRoutes);
 
-// Single-URL fallback for the frontend SPA
+// ====================== SPA FALLBACK ======================
 app.get(/^\/(?!api\/).*/, (req, res, next) => {
   if (fs.existsSync(frontendIndexPath)) {
     return res.sendFile(frontendIndexPath);
@@ -144,6 +128,7 @@ app.get(/^\/(?!api\/).*/, (req, res, next) => {
   return next();
 });
 
+// ====================== SERVER ======================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
