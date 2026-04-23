@@ -251,6 +251,7 @@ function toIssue(
 }
 // ...existing code...
 // Move apiRequest to top-level scope
+const API_BASE = import.meta.env.VITE_API_URL;
 async function apiRequest(path: string, options: RequestInit = {}) {
   const { token } = useAuthStore.getState();
   const headers: Record<string, string> = {
@@ -266,7 +267,9 @@ async function apiRequest(path: string, options: RequestInit = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(path, {
+  // Prefix all /api calls with API_BASE if not already absolute
+  const url = path.startsWith("/api/") ? `${API_BASE}${path}` : path;
+  const response = await fetch(url, {
     ...options,
     headers,
   });

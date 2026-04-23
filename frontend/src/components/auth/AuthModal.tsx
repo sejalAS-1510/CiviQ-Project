@@ -57,7 +57,7 @@ export function AuthModal({
   useEffect(() => {
     if (mode !== "signup") return;
     setOrgLoading(true);
-    fetch("/api/organizations")
+    fetch(`${API_BASE}/api/organizations`)
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.data)) {
@@ -450,7 +450,7 @@ export function AuthModal({
                                   setAddOrgError("");
                                   try {
                                     const res = await fetch(
-                                      "/api/organizations",
+                                      `${API_BASE}/api/organizations`,
                                       {
                                         method: "POST",
                                         headers: {

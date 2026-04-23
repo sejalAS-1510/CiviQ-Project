@@ -1,3 +1,4 @@
+const API_BASE = import.meta.env.VITE_API_URL;
 import { create } from "zustand";
 
 type UserPayload = {
@@ -177,7 +178,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   signup: async ({ name, email, password, role, specialization, ownerId }) => {
     set({ loading: true, error: null });
     try {
-      const response = await fetch(`/api/users/register`, {
+      const API_BASE = import.meta.env.VITE_API_URL;
+      const response = await fetch(`${API_BASE}/api/users/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -214,7 +216,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   loginWithCredentials: async ({ email, password }) => {
     set({ loading: true, error: null });
     try {
-      const response = await fetch(`/api/users/login`, {
+      const response = await fetch(`${API_BASE}/api/users/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -284,7 +286,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         return { success: false, message };
       }
 
-      const response = await fetch(`/api/users/profile`, {
+      const response = await fetch(`${API_BASE}/api/users/profile`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -347,7 +349,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     set({ loading: true, error: null });
     try {
-      const response = await fetch(`/api/users/profile`, {
+      const response = await fetch(`${API_BASE}/api/users/profile`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -414,11 +416,14 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     set({ loading: true, error: null });
     try {
-      const usersResponse = await fetch(`/api/users?page=1&limit=2000`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
+      const usersResponse = await fetch(
+        `${API_BASE}/api/users?page=1&limit=2000`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         },
-      });
+      );
 
       const usersPayload = await parseApiPayload(usersResponse);
       if (!usersResponse.ok || !usersPayload?.success) {
@@ -440,12 +445,15 @@ export const useAuthStore = create<AuthState>((set) => ({
         return { success: false, message };
       }
 
-      const deleteResponse = await fetch(`/api/users/${targetUser._id}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
+      const deleteResponse = await fetch(
+        `${API_BASE}/api/users/${targetUser._id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         },
-      });
+      );
 
       const deletePayload = await parseApiPayload(deleteResponse);
       if (!deleteResponse.ok || !deletePayload?.success) {
@@ -484,7 +492,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const formData = new FormData();
       formData.append("avatar", file);
-      const response = await fetch(`/api/users/avatar`, {
+      const response = await fetch(`${API_BASE}/api/users/avatar`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
