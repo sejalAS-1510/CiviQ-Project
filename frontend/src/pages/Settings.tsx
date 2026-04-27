@@ -59,9 +59,10 @@ function AllTechnicianRatings({ technicianId }: { technicianId: string }) {
     } catch {
       // Ignore JSON parse errors, treat as no token
     }
-    fetch(`${import.meta.env.VITE_API_URL}/api/complaints?technician=${technicianId}`,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
+    fetch(
+      `${import.meta.env.VITE_API_URL}/api/complaints?technician=${technicianId}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    )
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.data)) {
