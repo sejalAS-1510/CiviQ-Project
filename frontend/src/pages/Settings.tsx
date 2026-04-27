@@ -59,7 +59,7 @@ function AllTechnicianRatings({ technicianId }: { technicianId: string }) {
     } catch {
       // Ignore JSON parse errors, treat as no token
     }
-    fetch(`/api/complaints?technician=${technicianId}`, {
+    fetch(`${import.meta.env.VITE_API_URL}/api/complaints?technician=${technicianId}`,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
       .then((res) => res.json())
