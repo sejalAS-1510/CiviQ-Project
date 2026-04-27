@@ -257,7 +257,13 @@ function toIssue(
 }
 // ...existing code...
 // Move apiRequest to top-level scope
-const API_BASE = import.meta.env.VITE_API_URL;
+// Use VITE_API_URL from env, but fall back to localhost for development to avoid
+// accidental relative requests when the env var is not configured.
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+if (!import.meta.env.VITE_API_URL) {
+  // eslint-disable-next-line no-console
+  console.warn("VITE_API_URL is not set — using fallback", API_BASE);
+}
 async function apiRequest(path: string, options: RequestInit = {}) {
   const { token } = useAuthStore.getState();
   const headers: Record<string, string> = {
