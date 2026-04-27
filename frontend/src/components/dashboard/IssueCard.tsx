@@ -196,12 +196,12 @@ export function IssueCard({
           </span>
 
           {issue.scheduledFor && (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 text-xs rescheduled-text">
               Rescheduled for: {issue.scheduledFor.toLocaleString()}
             </p>
           )}
           {issue.technicianDecisionNote && (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs rescheduled-text">
               Note: {issue.technicianDecisionNote}
             </p>
           )}
