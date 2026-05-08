@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800">
+  <rect width="100%" height="100%" fill="#f9fafb"/>
+  <rect x="60" y="80" width="1080" height="560" rx="12" fill="#ffffff" stroke="#e8e8ea"/>
+  <text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="48" fill="#6b7280">Report Issue screenshot placeholder</text>
+</svg>

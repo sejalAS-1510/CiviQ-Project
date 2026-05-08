@@ -1,214 +1,106 @@
-# CiviQ - Community Issue Management System
+# CiviQ — Community Issue Management System
 
-A modern web application for managing community complaints and issues, built with Node.js, Express, MongoDB, and vanilla JavaScript.
+CiviQ is a lightweight, production-ready system for reporting, tracking, and resolving community issues with automated classification, technician assignment, notifications, and reporting.
 
-## 🚀 Quick Start (One Command)
+**Project overview**
+
+CiviQ streamlines citizen issue reporting and operations for communities and building managers. Residents report problems (plumbing, electrical, cleaning, security, infrastructure, noise), technicians are auto-selected using a configurable matching algorithm, and admins get centralized visibility, notifications, and exportable reports.
+
+**Why this matters**
+
+- Reduces manual triage by automating classification and assignment.
+- Centralizes communication with notifications and email for faster resolution.
+- Tracks lifecycle and ratings to surface technician performance and trends.
+
+**Key features**
+
+- Role-based access: resident, technician, admin
+- Complaint reporting: category, description, location, optional image
+- Automatic classification and optional auto-assignment to technicians
+- Technician decision flow: accept / reject / reschedule
+- Complaint lifecycle: Pending → In Progress → Resolved → Closed
+- Notifications (in-app) and email alerts (SendGrid/Gmail) for key events
+- Technician ratings and feedback history
+- Excel report generation per complaint (attachment-ready)
+- Background scheduler for reminders
+
+**Tech stack**
+
+- Backend: Node.js, Express, MongoDB (Mongoose), JWT, bcrypt
+- Frontend: React + TypeScript, Vite, Tailwind CSS, shadcn-ui, Zustand
+- Email: SendGrid or Gmail via Nodemailer
+- Other: Multer (uploads), node-cron (scheduler), ExcelJS (reports)
+
+**Architecture & workflow (brief)**
+
+Residents log in, submit an issue via the UI, and optionally upload an image. The server classifies the complaint, creates a DB record, optionally auto-assigns a technician, and triggers notification + email flows. Technicians update status or respond; admins manage users and reports. A scheduler sends reminder emails for pending assigned tasks.
+
+**Live demo**
+
+public demo URL: https://civiq-omega.vercel.app/
+
+**Quick setup (developer)**
+
+1. Clone the repo
 
 ```bash
-npm run dev
+# HTTPS (recommended for recruiters)
+git clone https://github.com/SejalAS-1510/CiviQ.git
+
+# OR (SSH) — for contributors with SSH keys configured
+# git clone git@github.com:<your-org-or-username>/civiq.git
+
+cd CiviQ
 ```
 
-This automatically starts both frontend and backend servers!
-
-## Single URL Mode
-
-To run frontend and backend on one URL, use:
+2. Install & run (root script starts both servers)
 
 ```bash
+# Install dependencies for root (frontend/backend handled by scripts)
+npm install
+
+# Start both frontend and backend in development
+npm run dev
+
+# Or run single-URL mode (builds frontend and serves from backend)
 npm run dev:single
 ```
 
-This builds the frontend and serves it from the backend at `http://localhost:5000`.
+3. Backend env
 
-## 📋 Manual Setup (Alternative)
-
-### Backend
+Copy the example and create a local `.env` (do not commit real secrets):
 
 ```bash
-cd backend
-npm install
-npm start
+cp backend/.env.example backend/.env
+# then edit backend/.env with your real values
 ```
 
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-## 🔑 Test Account
-
-- **Email:** test@example.com
-- **Password:** password123
-
-## 🌐 URLs
-
-- **Frontend:** http://localhost:8080
-- **Backend:** http://localhost:5000
-
-3. **Environment Configuration**
-   - Copy `.env` file and update the values:
-
-   ```env
-   MONGODB_URI=your_mongodb_connection_string
-   JWT_SECRET=your_secure_jwt_secret
-   EMAIL_PROVIDER=sendgrid
-   SENDGRID_API_KEY=your_sendgrid_api_key
-   SENDGRID_FROM_EMAIL=no-reply@yourdomain.com
-   SENDGRID_FROM_NAME=CiviQ Support
-   FRONTEND_URL=http://localhost:8080
-   ```
-
-### Email Provider Setup
-
-The app can send email through either SendGrid or Gmail. For production, use SendGrid. Gmail is mainly for local development.
-
-### SendGrid Setup
-
-1. Create a free account at https://sendgrid.com.
-2. Open **Settings -> API Keys** and create a new API key.
-3. Copy the key into `SENDGRID_API_KEY`.
-4. Verify your sender address in SendGrid, then set it in `SENDGRID_FROM_EMAIL`.
-5. Leave `EMAIL_PROVIDER=sendgrid` in `backend/.env`.
-
-### Gmail Setup
-
-If you want to use Gmail instead, set `EMAIL_PROVIDER=gmail` and use a Google App Password instead of your normal Gmail password.
-
-1. Turn on 2-Step Verification for the Google account.
-2. Open https://myaccount.google.com/apppasswords.
-3. Create an app password for `Mail` and your device.
-4. Copy the 16-character password into `GMAIL_APP_PASSWORD`.
-5. Keep `GMAIL_USER` set to the exact Gmail address that owns the app password.
-
-If you are just testing locally and do not want emails sent yet, leave the Gmail values blank. The app will keep working and will log the failure instead of breaking complaint flow.
-
-4. **Start MongoDB**
-   - Make sure MongoDB is running locally or update MONGO_URI for cloud instance
-
-5. **Run the Backend**
-
-   ```bash
-   npm start
-   ```
-
-   Server will start on http://localhost:5000
-
-6. **Frontend Setup**
-   - Open `frontend/pages/index.html` in your browser
-   - Or serve the frontend files using a local server
-
-## API Endpoints
-
-### Authentication
-
-- `POST /api/users/register` - Register new user
-- `POST /api/users/login` - User login
-- `GET /api/users/profile` - Get user profile
-- `PUT /api/users/profile` - Update user profile
-
-### Complaints
-
-- `GET /api/complaints` - Get all complaints (filtered by role)
-- `POST /api/complaints` - Create new complaint
-- `GET /api/complaints/:id` - Get single complaint
-- `PUT /api/complaints/:id` - Update complaint
-- `DELETE /api/complaints/:id` - Delete complaint (admin only)
-- `PUT /api/complaints/:id/assign` - Assign technician (admin only)
-
-### User Management (Admin Only)
-
-- `GET /api/users` - Get all users
-- `GET /api/users/:id` - Get user by ID
-- `PUT /api/users/:id` - Update user
-- `DELETE /api/users/:id` - Delete user
-
-## User Roles
-
-1. **Resident/User**
-   - Submit complaints
-   - View their own complaints
-   - Update complaint details
-   - Track complaint status
-
-2. **Technician**
-   - View assigned complaints
-   - Update complaint status
-   - Access complaints in their specialization area
-
-3. **Administrator**
-   - Full system access
-   - Manage users and complaints
-   - View analytics and reports
-   - Assign technicians to complaints
-
-## Project Structure
+Example `.env` keys (placeholders are in `backend/.env.example`):
 
 ```
-CiviQ/
-├── backend/
-│   ├── config/
-│   │   └── db.js                 # Database connection
-│   ├── controllers/
-│   │   ├── userController.js     # User authentication & management
-│   │   └── complaintController.js # Complaint CRUD operations
-│   ├── middleware/
-│   │   └── authMiddleware.js     # Authentication middleware
-│   ├── models/
-│   │   ├── User.js              # User schema
-│   │   └── Complaint.js         # Complaint schema
-│   ├── routes/
-│   │   ├── userRoutes.js        # User API routes
-│   │   └── complaintRoutes.js   # Complaint API routes
-│   ├── server.js                # Main server file
-│   ├── package.json
-│   └── .env                     # Environment variables
-├── frontend/
-│   ├── pages/
-│   │   └── index.html           # Main application page
-│   ├── js/
-│   │   └── main.js              # Frontend JavaScript
-│   └── css/
-│       └── style.css            # Application styles
-└── README.md
+MONGODB_URI=mongodb+srv://<user>:<password>@cluster0.mongodb.net/civiq?retryWrites=true&w=majority
+JWT_SECRET=replace_with_random_secret
+EMAIL_PROVIDER=sendgrid # or gmail
+SENDGRID_API_KEY=replace_with_sendgrid_api_key
+SENDGRID_FROM_EMAIL=verified-sender@example.com
+# FRONTEND_URL: for Vite dev server use http://localhost:5173
+# If you run the app in single-URL mode (backend serves frontend), set http://localhost:8080
+FRONTEND_URL=http://localhost:5173
 ```
 
-## Development
+**API & file locations**
 
-### Running in Development Mode
+- Backend server: `backend/server.js`
+- API routes: `backend/routes/*`
+- Frontend app: `frontend/src/` (entry: `frontend/src/main.tsx` and `frontend/src/App.tsx`)
 
-```bash
-# Backend
-cd backend
-npm run dev  # If you add nodemon to dev script
+**Notes for evaluators**
 
-# Frontend
-# Open index.html in browser or use a local server
-# Example with Python: python -m http.server 8000
-```
+- The repository includes a simple feature audit script: `scripts/feature-audit.js` that performs basic end-to-end API checks.
+- Auto-assignment logic lives in `backend/services/technicianAssigner.js` and complaint classification in `backend/services/categoryDetector.js`.
 
-### Testing the API
+**Contributing & license**
 
-Use tools like Postman or Insomnia to test API endpoints. Include the JWT token in the Authorization header for protected routes:
+Contributions welcome — fork, branch, and open a pull request. Licensed under ISC (see project root `package.json`).
 
-```
-Authorization: Bearer <your_jwt_token>
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## License
-
-This project is licensed under the ISC License.
-
-## Support
-
-For questions or issues, please create an issue in the repository or contact the development team.
+---
