@@ -21,6 +21,7 @@ interface NotificationApiItem {
 }
 import { create } from "zustand";
 import { useAuthStore } from "@/store/authStore";
+import { resolveApiBase } from "@/lib/apiBase";
 
 export type NotificationType = "success" | "info" | "warning" | "error";
 export type NotificationCategory =
@@ -92,7 +93,7 @@ async function parseApiPayload(
   }
 }
 
-const API_BASE = import.meta.env.VITE_API_URL;
+const API_BASE = resolveApiBase();
 async function apiRequest(path: string, options: RequestInit = {}) {
   const { token } = useAuthStore.getState();
   const headers: Record<string, string> = {

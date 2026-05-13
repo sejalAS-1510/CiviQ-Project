@@ -6,11 +6,12 @@
 html,
 body,
 #root {
-  width: 100vw;
+  width: 100%;
   min-height: 100vh;
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  overflow-x: hidden;
 }
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap");
 
@@ -21,7 +22,7 @@ body,
 @layer base {
   :root {
     --background: 0 0% 100%;
-    /* #95bb72 */
+    /* #9999999 */
     --foreground: 0 0% 18%;
 
     --card: 0 0% 100%;
@@ -30,8 +31,8 @@ body,
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 18%;
 
-    --primary: 150 18% 30%;
-    --primary-foreground: 140 10% 96%;
+    --primary: 200 67% 22%;
+    --primary-foreground: 0 0% 100%;
 
     --secondary: 140 8% 57%;
     --secondary-foreground: 0 0% 18%;
@@ -39,7 +40,7 @@ body,
     --muted: 140 8% 92%;
     --muted-foreground: 0 0% 45%;
 
-    --accent: 140 12% 88%;
+    --accent: 215 12% 88%;
     --accent-foreground: 150 18% 25%;
 
     --destructive: 0 72% 51%;
@@ -47,14 +48,14 @@ body,
 
     --border: 140 10% 88%;
     --input: 140 10% 88%;
-    --ring: 150 18% 30%;
+    --ring: 220 97% 12%;
 
     --radius: 0.75rem;
 
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 0 0% 18%;
-    --sidebar-primary: 150 18% 30%;
-    --sidebar-primary-foreground: 140 10% 96%;
+    --sidebar-primary: 220 97% 12%;
+    --sidebar-primary-foreground: 0 0% 98%;
     --sidebar-accent: 140 12% 88%;
     --sidebar-accent-foreground: 150 18% 25%;
     --sidebar-border: 140 10% 88%;
@@ -70,13 +71,13 @@ body,
 
     --gradient-primary: linear-gradient(
       135deg,
-      hsl(150 18% 30%),
-      hsl(140 15% 42%)
+      hsl(220, 37%, 54%),
+      hsl(220 85% 18%)
     );
     --gradient-hero: linear-gradient(
       135deg,
-      hsl(150 18% 30% / 0.9),
-      hsl(140 12% 45% / 0.8)
+      hsl(220 97% 12% / 0.9),
+      hsl(220 85% 18% / 0.8)
     );
     --gradient-card: linear-gradient(180deg, hsl(0 0% 100%), hsl(140 10% 97%));
     --gradient-glass: linear-gradient(
@@ -85,10 +86,10 @@ body,
       rgba(255, 255, 255, 0.65)
     );
 
-    --shadow-sm: 0 1px 3px hsl(150 18% 30% / 0.06);
-    --shadow-md: 0 4px 12px hsl(150 18% 30% / 0.08);
-    --shadow-lg: 0 8px 30px hsl(150 18% 30% / 0.12);
-    --shadow-glow: 0 0 20px hsl(150 18% 30% / 0.15);
+    --shadow-sm: 0 1px 3px hsl(220 97% 12% / 0.06);
+    --shadow-md: 0 4px 12px hsl(220 97% 12% / 0.08);
+    --shadow-lg: 0 8px 30px hsl(220 97% 12% / 0.12);
+    --shadow-glow: 0 0 20px hsl(220 97% 12% / 0.15);
   }
 
   .dark {
@@ -98,8 +99,8 @@ body,
     --card-foreground: 140 10% 92%;
     --popover: 150 10% 11%;
     --popover-foreground: 140 10% 92%;
-    --primary: 140 25% 55%;
-    --primary-foreground: 150 10% 8%;
+    --primary: 220 97% 12%;
+    --primary-foreground: 0 0% 98%;
     --secondary: 140 8% 22%;
     --secondary-foreground: 140 10% 92%;
     --muted: 140 8% 16%;
@@ -110,11 +111,11 @@ body,
     --destructive-foreground: 0 0% 100%;
     --border: 140 8% 18%;
     --input: 140 8% 18%;
-    --ring: 140 25% 55%;
+    --ring: 220 97% 12%;
     --sidebar-background: 150 10% 8%;
     --sidebar-foreground: 140 10% 92%;
-    --sidebar-primary: 140 25% 55%;
-    --sidebar-primary-foreground: 150 10% 8%;
+    --sidebar-primary: 220 97% 12%;
+    --sidebar-primary-foreground: 0 0% 98%;
     --sidebar-accent: 140 12% 18%;
     --sidebar-accent-foreground: 140 25% 55%;
     --sidebar-border: 140 8% 18%;
@@ -202,7 +203,7 @@ body,
 
   /* Background gradient with decorative blobs */
   .bg-page-gradient {
-    background: rgb(155, 207, 144);
+    background: rgb(229, 240, 249);
     position: relative;
     min-height: 100vh;
   }

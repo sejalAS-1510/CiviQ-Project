@@ -6,9 +6,10 @@ import { Lock, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { resolveApiBase } from "@/lib/apiBase";
 import { toast } from "sonner";
 
-const API_BASE = import.meta.env.VITE_API_URL;
+const API_BASE = resolveApiBase();
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();

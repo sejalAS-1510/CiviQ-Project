@@ -178,11 +178,6 @@ exports.createComplaint = async (req, res) => {
       }),
       `complaint-created-${complaint._id}`,
     );
-    triggerNotification(
-      emailService.sendIssueSubmittedNotification(complaint, req.user),
-      `complaint-submitted-email-${complaint._id}`,
-    );
-
     // If admin reported for a resident who is a registered user, notify the resident as well
     if (residentUser) {
       triggerNotification(

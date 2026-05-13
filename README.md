@@ -85,6 +85,7 @@ SENDGRID_API_KEY=replace_with_sendgrid_api_key
 SENDGRID_FROM_EMAIL=verified-sender@example.com
 # FRONTEND_URL: for Vite dev server use http://localhost:5173
 # If you run the app in single-URL mode (backend serves frontend), set http://localhost:8080
+# If frontend is deployed separately (e.g. Vercel), set your live frontend URL here
 FRONTEND_URL=http://localhost:5173
 ```
 

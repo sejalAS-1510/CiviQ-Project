@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useIssueStore } from "@/store/issueStore";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "sonner";
+import { resolveMediaUrl } from "@/lib/mediaUrl";
 
 interface IssueCardProps {
   issue: Issue;
@@ -45,7 +46,7 @@ export function IssueCard({
   onReschedule,
 }: IssueCardProps) {
   const [showRatingModal, setShowRatingModal] = useState(false);
-  const [rating, setRating] = useState<number>(5);
+  const [rating, setRating] = useState<number>(0);
   const [feedback, setFeedback] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const rateTechnician = useIssueStore((s) => s.rateTechnician);
@@ -56,13 +57,19 @@ export function IssueCard({
     (user?.role === "admin" || user?.role === "resident") &&
     issue.status === "resolved" &&
     issue.technicianName;
+  const [imageError, setImageError] = useState(false);
 
   const handleOpenRating = () => {
     setShowRatingModal(true);
-    setRating(5);
+    setRating(0);
     setFeedback("");
   };
   const handleSubmitRating = async () => {
+    if (rating < 1) {
+      toast.error("Please select at least 1 star before submitting.");
+      return;
+    }
+
     setSubmitting(true);
     const result = await rateTechnician(issue.id, rating, feedback);
     setSubmitting(false);
@@ -79,13 +86,13 @@ export function IssueCard({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay }}
-      className="rounded-xl border border-border p-5 hover-lift shadow-card bg-primary"
+      className="w-full rounded-xl border border-border p-4 hover-lift shadow-card bg-primary"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           {/* Technician Rating/Feedback - Only for admin/resident after resolved */}
           {canRate && (
-            <div className="mt-2">
+            <div className="mt-2 mb-3">
               {typeof issue.technicianRating === "number" ? (
                 <div className="flex items-center gap-2 text-xs text-yellow-700 bg-yellow-50 rounded p-2 border border-yellow-100">
                   <span className="font-semibold">Your Rating:</span>
@@ -105,7 +112,7 @@ export function IssueCard({
                 </div>
               ) : (
                 <button
-                  className="mt-2 text-xs px-3 py-1.5 rounded-md font-medium transition-all bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
+                  className="text-xs px-3 py-1.5 rounded-md font-medium transition-all bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
                   onClick={handleOpenRating}
                 >
                   Rate Technician
@@ -146,7 +153,7 @@ export function IssueCard({
                 />
                 <div className="flex gap-2 justify-end">
                   <button
-                    className="px-3 py-1.5 rounded bg-gray-200 text-gray-700 text-xs font-medium"
+                    className="px-3 py-1.5 rounded bg-gray-100 text-gray-700 text-xs font-medium"
                     onClick={() => setShowRatingModal(false)}
                     disabled={submitting}
                   >
@@ -155,7 +162,7 @@ export function IssueCard({
                   <button
                     className="px-3 py-1.5 rounded bg-yellow-500 text-white text-xs font-medium disabled:opacity-60"
                     onClick={handleSubmitRating}
-                    disabled={submitting}
+                    disabled={submitting || rating < 1}
                   >
                     {submitting ? "Submitting..." : "Submit"}
                   </button>
@@ -163,11 +170,12 @@ export function IssueCard({
               </div>
             </div>
           )}
-          {issue.imageUrl && (
+          {issue.imageUrl && !imageError && (
             <img
-              src={issue.imageUrl}
+              src={resolveMediaUrl(issue.imageUrl)}
               alt="Issue"
-              className="w-full h-36 object-cover rounded-lg mb-3 border border-border"
+              className="w-full max-h-36 object-contain rounded-md mb-3"
+              onError={() => setImageError(true)}
             />
           )}
           <div className="flex items-center gap-2 flex-wrap">
@@ -183,7 +191,7 @@ export function IssueCard({
                 </span>
               )}
           </div>
-          <p className="text-sm mt-2 line-clamp-2 text-[#b0c4b0]">
+          <p className="text-sm mt-2 line-clamp-2 text-[#b5c4b0]">
             {issue.description}
           </p>
           <span className="flex items-center gap-1 text-white">
@@ -248,8 +256,7 @@ export function IssueCard({
               {issue.status === "pending" && (
                 <button
                   onClick={() => onStatusChange(issue.id, "in-progress")}
-                  className="text-xs px-3 py-1.5 rounded-md font-medium transition-all bg-accent text-accent-foreground hover:bg-accent-dark border border-accent"
-                  style={{ marginLeft: 0 }}
+                  className="text-xs px-3 py-1.5 rounded-md font-medium transition-all bg-sky-600 text-white hover:bg-sky-700 border border-sky-700"
                 >
                   Start Progress
                 </button>
@@ -257,8 +264,7 @@ export function IssueCard({
               {issue.status === "in-progress" && (
                 <button
                   onClick={() => onStatusChange(issue.id, "resolved")}
-                  className="text-xs px-3 py-1.5 rounded-md font-medium transition-all bg-accent text-accent-foreground hover:bg-accent-dark border border-accent"
-                  style={{ marginLeft: 0 }}
+                  className="text-xs px-3 py-1.5 rounded-md font-medium transition-all bg-emerald-600 text-white hover:bg-emerald-700 border border-emerald-700"
                 >
                   Mark Resolved
                 </button>

@@ -13,7 +13,11 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/authStore";
+import { resolveApiBase } from "@/lib/apiBase";
 import { toast } from "sonner";
+import { resolveMediaUrl } from "@/lib/mediaUrl";
+
+const API_BASE = resolveApiBase();
 
 // Removed non-working settings sections (Notifications, Privacy, Language)
 const settingsSections = [];
@@ -59,10 +63,9 @@ function AllTechnicianRatings({ technicianId }: { technicianId: string }) {
     } catch {
       // Ignore JSON parse errors, treat as no token
     }
-    fetch(
-      `${import.meta.env.VITE_API_URL}/api/complaints?technician=${technicianId}`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-    )
+    fetch(`${API_BASE}/api/complaints?technician=${technicianId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.data)) {
@@ -182,7 +185,7 @@ const SettingsPage = () => {
       if (user.ownerId) {
         setOrgLoading(true);
         setOrgError(null);
-        fetch(`${import.meta.env.VITE_API_URL}/api/organizations`)
+        fetch(`${API_BASE}/api/organizations`)
           .then((res) => res.json())
           .then((data) => {
             if (data.success && Array.isArray(data.data)) {
@@ -220,8 +223,10 @@ const SettingsPage = () => {
           // Ignore JSON parse errors, treat as no token
         }
         fetch(
-          `${import.meta.env.VITE_API_URL}/api/complaints/technicians/${user.id}/average-rating`,
-          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+          `${API_BASE}/api/complaints/technicians/${user.id}/average-rating`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          },
         )
           .then((res) => res.json())
           .then((data) => {
@@ -382,19 +387,19 @@ const SettingsPage = () => {
               <div className="flex flex-col items-center gap-1.5 shrink-0">
                 {/* Avatar image: ensure absolute URL in production */}
                 {(() => {
-                  let avatarSrc = user?.avatar || "/default-avatar.svg";
-                  if (
-                    user?.avatar &&
-                    !user.avatar.startsWith("http") &&
-                    user.avatar.startsWith("/uploads/")
-                  ) {
-                    avatarSrc = `${import.meta.env.VITE_API_URL}${user.avatar}`;
-                  }
+                  const avatarSrc = resolveMediaUrl(user?.avatar);
                   return (
                     <img
                       src={avatarSrc}
                       alt="User avatar"
                       className="w-20 h-20 rounded-full object-cover border bg-gray-100"
+                      onError={(event) => {
+                        event.currentTarget.src =
+                          "data:image/svg+xml;utf8," +
+                          encodeURIComponent(
+                            '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="100%" height="100%" fill="#e5e7eb"/><circle cx="40" cy="30" r="14" fill="#9ca3af"/><path d="M16 70c4-16 16-24 24-24s20 8 24 24" fill="#9ca3af"/></svg>',
+                          );
+                      }}
                     />
                   );
                 })()}

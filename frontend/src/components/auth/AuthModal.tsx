@@ -20,10 +20,11 @@ import {
   UserRole,
   TechnicianSpecialization,
 } from "@/store/authStore";
+import { resolveApiBase } from "@/lib/apiBase";
 import { toast } from "sonner";
 
 // Points to the backend. In Vite you can set VITE_API_URL in .env.
-const API_BASE = import.meta.env.VITE_API_URL;
+const API_BASE = resolveApiBase();
 
 interface AuthModalProps {
   open: boolean;
@@ -369,7 +370,7 @@ export function AuthModal({
                           <Input
                             value={name}
                             onChange={(e) => setName(e.target.value)}
-                            placeholder="John Doe"
+                            placeholder="Enter your full name"
                             className="pl-9"
                             required
                           />

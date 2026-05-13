@@ -5,6 +5,7 @@ type ApiPayload = {
 };
 import { create } from "zustand";
 import { useAuthStore } from "@/store/authStore";
+import { resolveMediaUrl } from "@/lib/mediaUrl";
 
 export type IssueStatus = "pending" | "in-progress" | "resolved";
 export type IssueCategory =
@@ -206,18 +207,7 @@ function toIssue(
   complaint: BackendComplaint & { ratings?: BackendRating[] },
 ): Issue {
   const imagePath = complaint.images?.[0];
-  let imageUrl: string | undefined = undefined;
-  if (imagePath) {
-    if (imagePath.startsWith("http")) {
-      imageUrl = imagePath;
-    } else {
-      // Normalize non-absolute paths to always start with '/'
-      const normalized = imagePath.startsWith("/")
-        ? imagePath
-        : `/${imagePath}`;
-      imageUrl = `${API_BASE}${normalized}`;
-    }
-  }
+  const imageUrl = resolveMediaUrl(imagePath);
 
   return {
     id: complaint._id,
@@ -262,7 +252,6 @@ function toIssue(
 // accidental relative requests when the env var is not configured.
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 if (!import.meta.env.VITE_API_URL) {
-  // eslint-disable-next-line no-console
   console.warn("VITE_API_URL is not set — using fallback", API_BASE);
 }
 async function apiRequest(path: string, options: RequestInit = {}) {

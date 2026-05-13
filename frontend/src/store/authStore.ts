@@ -1,4 +1,6 @@
-const API_BASE = import.meta.env.VITE_API_URL;
+import { resolveApiBase } from "@/lib/apiBase";
+
+const API_BASE = resolveApiBase();
 import { create } from "zustand";
 
 type UserPayload = {

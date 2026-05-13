@@ -176,7 +176,7 @@ const MyIssues = () => {
           </div>
         </div>
 
-        <div className="grid gap-4 mt-6 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 mt-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4">
           {error && (
             <div className="col-span-full text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">
               {error}

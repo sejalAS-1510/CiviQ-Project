@@ -1,12 +1,6 @@
 import { useEffect } from "react";
 import { motion } from "framer-motion";
-import {
-  Bell,
-  CheckCircle,
-  AlertCircle,
-  Clock,
-  CheckCheck,
-} from "lucide-react";
+import { Bell, CheckCircle, AlertCircle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/authStore";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -73,12 +67,7 @@ const Notifications = () => {
               Stay updated on issue activity and important alerts.
             </p>
           </div>
-          {unreadCount > 0 && (
-            <Button variant="outline" size="sm" onClick={markAllAsRead}>
-              <CheckCheck className="h-4 w-4 mr-2" />
-              Mark all read
-            </Button>
-          )}
+          {/* unread actions removed */}
         </div>
 
         {error && (
@@ -123,15 +112,10 @@ const Notifications = () => {
                 <motion.button
                   key={n.id}
                   type="button"
-                  onClick={() => !n.isRead && markAsRead(n.id)}
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.08 * i }}
-                  className={`w-full text-left bg-card rounded-xl border p-4 hover-lift shadow-card flex items-start gap-3 transition-colors ${
-                    n.isRead
-                      ? "border-border"
-                      : "border-primary/30 bg-primary/5"
-                  }`}
+                  className={`w-full text-left bg-white rounded-xl border border-border p-4 hover-lift shadow-card flex items-start gap-3 transition-colors`}
                 >
                   <div
                     className={`h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0 ${typeStyles[n.type]}`}
@@ -143,9 +127,7 @@ const Notifications = () => {
                       <p className="text-sm font-semibold text-foreground">
                         {n.title}
                       </p>
-                      {!n.isRead && (
-                        <span className="h-2.5 w-2.5 rounded-full bg-primary shrink-0" />
-                      )}
+                      {/* unread dot removed */}
                     </div>
                     <p className="text-sm text-muted-foreground mt-0.5">
                       {n.message}

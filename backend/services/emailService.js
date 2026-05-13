@@ -199,12 +199,14 @@ function initializeTransporter() {
 
   const gmailUser = process.env.GMAIL_USER || process.env.EMAIL_USER;
   const gmailPassword =
-    process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASS;
+    process.env.GMAIL_APP_PASSWORD ||
+    process.env.GMAIL_PASS ||
+    process.env.EMAIL_PASS;
 
   if (!gmailUser || !gmailPassword) {
     if (!emailConfigWarned) {
       console.warn(
-        "[email] Service not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD in backend/.env",
+        "[email] Service not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD (or GMAIL_PASS) in backend/.env",
       );
       emailConfigWarned = true;
     }

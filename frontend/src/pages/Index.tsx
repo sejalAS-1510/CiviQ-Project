@@ -48,7 +48,7 @@ const Index = () => {
           alt="Community"
           className="w-full h-48 sm:h-64 object-cover"
         />
-        <div className="absolute inset-0 gradient-hero flex items-end">
+        <div className="absolute inset-0 flex items-end">
           <div className="p-6 sm:p-8">
             <h1 className="text-2xl sm:text-3xl font-display font-bold text-primary-foreground">
               Welcome to CiviQ
