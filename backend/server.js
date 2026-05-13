@@ -102,6 +102,35 @@ if (fs.existsSync(frontendDistPath)) {
 // ====================== DATABASE ======================
 connectDB();
 
+// ====================== EMAIL DIAGNOSTICS ======================
+const readEnv = (name) => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null) return "";
+  const value = String(raw).trim();
+  const hasDoubleQuotes = value.startsWith('"') && value.endsWith('"');
+  const hasSingleQuotes = value.startsWith("'") && value.endsWith("'");
+  if ((hasDoubleQuotes || hasSingleQuotes) && value.length >= 2) {
+    return value.slice(1, -1).trim();
+  }
+  return value;
+};
+const emailProvider =
+  readEnv("EMAIL_PROVIDER") ||
+  (readEnv("SENDGRID_API_KEY") ? "sendgrid" : "gmail");
+const gmailUser = readEnv("GMAIL_USER") || readEnv("EMAIL_USER");
+const gmailPassword =
+  readEnv("GMAIL_APP_PASSWORD") ||
+  readEnv("GMAIL_PASS") ||
+  readEnv("EMAIL_PASS");
+console.log(
+  `[startup] Email configured: provider=${emailProvider}, user=${gmailUser || "(not set)"}`,
+);
+if (!gmailPassword) {
+  console.warn(
+    "[startup] WARNING: Email password not configured (GMAIL_APP_PASSWORD, GMAIL_PASS, or EMAIL_PASS)",
+  );
+}
+
 // ====================== ROUTES ======================
 
 // Test routes

@@ -62,6 +62,8 @@ function triggerNotification(promise, label) {
         console.warn(`[notification] ${label} failed`, result);
       } else if (result?.partial) {
         console.warn(`[notification] ${label} partial delivery`, result);
+      } else {
+        console.log(`[notification] ${label} sent successfully`);
       }
     })
     .catch((error) => {
@@ -79,6 +81,11 @@ function triggerNotificationBatch(promise, label) {
       if (failures.length) {
         console.warn(
           `[notification] ${label} had ${failures.length} failure(s)`,
+          failures,
+        );
+      } else {
+        console.log(
+          `[notification] ${label} batch sent successfully (${results.length} items)`,
         );
       }
     })

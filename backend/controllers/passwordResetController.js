@@ -66,24 +66,47 @@ exports.forgotPassword = async (req, res) => {
       "http://localhost:8080";
     const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}&email=${encodeURIComponent(user.email)}`;
 
-    // Send email using your existing emailService and log the result for deployment diagnostics
-    const emailResult = await emailService.sendPasswordResetEmail(
-      user,
-      resetUrl,
-    );
-    console.log("[passwordReset] sendPasswordResetEmail result:", emailResult);
+    // Fire off email send asynchronously (don't await) so response returns immediately.
+    // Email will still be sent in the background.
+    console.log(`[passwordReset] Starting async email send for ${user.email}`);
 
-    if (!emailResult?.success) {
-      // Roll back token if email wasn't delivered to avoid stale unusable reset links.
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpire = undefined;
-      await user.save({ validateModifiedOnly: true });
-      console.warn(
-        "[passwordReset] Reset email not sent; token cleared for user:",
-        user.email,
-      );
-    }
+    emailService
+      .sendPasswordResetEmail(user, resetUrl)
+      .then((emailResult) => {
+        console.log(
+          `[passwordReset] Email sent for ${user.email}:`,
+          emailResult,
+        );
+        if (!emailResult?.success) {
+          // Roll back token if email wasn't delivered
+          User.findByIdAndUpdate(
+            user._id,
+            {
+              $unset: { resetPasswordToken: 1, resetPasswordExpire: 1 },
+            },
+            { new: true },
+          )
+            .then(() => {
+              console.warn(
+                `[passwordReset] Token cleared for ${user.email} after failed email send`,
+              );
+            })
+            .catch((err) => {
+              console.error(
+                `[passwordReset] Failed to clear token for ${user.email}:`,
+                err.message,
+              );
+            });
+        }
+      })
+      .catch((err) => {
+        console.error(
+          `[passwordReset] Async email send failed for ${user.email}:`,
+          err.message,
+        );
+      });
 
+    // Respond immediately without waiting for email
     return res.status(200).json({
       success: true,
       message: "If that email is registered, a reset link has been sent.",
