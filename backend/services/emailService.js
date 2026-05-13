@@ -29,7 +29,7 @@ function readEnvNumber(name, fallback) {
 const DEFAULT_FRONTEND_URL = readEnv("FRONTEND_URL") || "http://localhost:8080";
 const EMAIL_RETRY_ATTEMPTS = readEnvNumber("EMAIL_RETRY_ATTEMPTS", 3);
 const EMAIL_RETRY_DELAY_MS = readEnvNumber("EMAIL_RETRY_DELAY_MS", 1500);
-const EMAIL_SEND_TIMEOUT_MS = readEnvNumber("EMAIL_SEND_TIMEOUT_MS", 10000);
+const EMAIL_SEND_TIMEOUT_MS = readEnvNumber("EMAIL_SEND_TIMEOUT_MS", 30000);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -246,14 +246,15 @@ function initializeTransporter() {
   console.log(`[email] Creating gmail transport for ${gmailUser}`);
 
   transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    family: 4,
+    service: "gmail",
     auth: {
       user: gmailUser,
       pass: gmailPassword,
     },
+
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 30000,
     tls: {
       rejectUnauthorized: false,
     },
@@ -268,42 +269,17 @@ async function ensureTransportReady() {
   const transport = initializeTransporter();
   if (!transport) return null;
 
+  // Skip verify for Gmail on Render free tier
   if (!transporterVerified) {
-    try {
-      if (typeof transport.verify === "function") {
-        await transport.verify();
-      }
-      transporterVerified = true;
-      const provider = resolveEmailProvider();
-      const verifiedUser =
-        provider === "sendgrid"
-          ? readEnv("SENDGRID_FROM_EMAIL") || readEnv("EMAIL_FROM")
-          : readEnv("GMAIL_USER") || readEnv("EMAIL_USER");
-      console.log(`[email] ${provider} service verified for ${verifiedUser}`);
-    } catch (error) {
-      const isAuthFailure =
-        Number(error?.responseCode) === 535 ||
-        /badcredentials|username and password not accepted|auth/i.test(
-          error?.message || "",
-        );
+    transporterVerified = true;
 
-      // Keep the service disabled only for definite auth failures.
-      // For transient verify errors, allow a fresh retry on next request.
-      emailServiceDisabledReason = isAuthFailure ? "email-auth-failed" : null;
-      transporter = null;
-      transporterVerified = false;
+    const provider = resolveEmailProvider();
+    const verifiedUser =
+      provider === "sendgrid"
+        ? readEnv("SENDGRID_FROM_EMAIL") || readEnv("EMAIL_FROM")
+        : readEnv("GMAIL_USER") || readEnv("EMAIL_USER");
 
-      if (isAuthFailure) {
-        console.warn(
-          `[email] Disabled for this runtime (${emailServiceDisabledReason}): ${error.message}`,
-        );
-      } else {
-        console.warn(
-          `[email] Verify failed, will retry on next request: ${error.message}`,
-        );
-      }
-      return null;
-    }
+    console.log(`[email] ${provider} service ready for ${verifiedUser}`);
   }
 
   return transport;
