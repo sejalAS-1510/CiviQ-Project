@@ -6,13 +6,30 @@ let transporterVerified = false;
 let emailServiceDisabledReason = null;
 let emailConfigWarned = false;
 
-const DEFAULT_FRONTEND_URL =
-  process.env.FRONTEND_URL || "http://localhost:8080";
-const EMAIL_RETRY_ATTEMPTS = Number(process.env.EMAIL_RETRY_ATTEMPTS || 3);
-const EMAIL_RETRY_DELAY_MS = Number(process.env.EMAIL_RETRY_DELAY_MS || 1500);
-const EMAIL_SEND_TIMEOUT_MS = Number(
-  process.env.EMAIL_SEND_TIMEOUT_MS || 10000,
-);
+function readEnv(name) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null) return "";
+
+  const value = String(raw).trim();
+  const hasDoubleQuotes = value.startsWith('"') && value.endsWith('"');
+  const hasSingleQuotes = value.startsWith("'") && value.endsWith("'");
+
+  if ((hasDoubleQuotes || hasSingleQuotes) && value.length >= 2) {
+    return value.slice(1, -1).trim();
+  }
+
+  return value;
+}
+
+function readEnvNumber(name, fallback) {
+  const parsed = Number(readEnv(name) || fallback);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const DEFAULT_FRONTEND_URL = readEnv("FRONTEND_URL") || "http://localhost:8080";
+const EMAIL_RETRY_ATTEMPTS = readEnvNumber("EMAIL_RETRY_ATTEMPTS", 3);
+const EMAIL_RETRY_DELAY_MS = readEnvNumber("EMAIL_RETRY_DELAY_MS", 1500);
+const EMAIL_SEND_TIMEOUT_MS = readEnvNumber("EMAIL_SEND_TIMEOUT_MS", 10000);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -52,15 +69,13 @@ function isRetryableError(error) {
 }
 
 function resolveEmailProvider() {
-  const configuredProvider = String(process.env.EMAIL_PROVIDER || "")
-    .trim()
-    .toLowerCase();
+  const configuredProvider = readEnv("EMAIL_PROVIDER").toLowerCase();
 
   if (configuredProvider === "gmail" || configuredProvider === "sendgrid") {
     return configuredProvider;
   }
 
-  if (process.env.SENDGRID_API_KEY) {
+  if (readEnv("SENDGRID_API_KEY")) {
     return "sendgrid";
   }
 
@@ -69,25 +84,27 @@ function resolveEmailProvider() {
 
 function getFromAddress() {
   const provider = resolveEmailProvider();
+  const sendgridFromEmail = readEnv("SENDGRID_FROM_EMAIL");
+  const gmailUser = readEnv("GMAIL_USER");
+  const emailUser = readEnv("EMAIL_USER");
+  const sendgridFromName = readEnv("SENDGRID_FROM_NAME");
+  const emailFrom = readEnv("EMAIL_FROM");
   const fromEmail =
-    process.env.SENDGRID_FROM_EMAIL ||
-    process.env.GMAIL_USER ||
-    process.env.EMAIL_USER ||
-    "no-reply@localhost";
+    sendgridFromEmail || gmailUser || emailUser || "no-reply@localhost";
 
   if (
     provider === "sendgrid" &&
-    process.env.SENDGRID_FROM_NAME &&
+    sendgridFromName &&
     fromEmail &&
     !/[<>]/.test(fromEmail)
   ) {
     return {
       email: fromEmail,
-      name: process.env.SENDGRID_FROM_NAME,
+      name: sendgridFromName,
     };
   }
 
-  return process.env.EMAIL_FROM || fromEmail;
+  return emailFrom || fromEmail;
 }
 
 function normalizeAttachmentForSendGrid(attachment) {
@@ -127,7 +144,7 @@ function buildSendGridMessage(mailOptions) {
 }
 
 function createSendGridClient() {
-  const apiKey = process.env.SENDGRID_API_KEY;
+  const apiKey = readEnv("SENDGRID_API_KEY");
 
   if (!apiKey) {
     if (!emailConfigWarned) {
@@ -197,11 +214,11 @@ function initializeTransporter() {
     return transporter;
   }
 
-  const gmailUser = process.env.GMAIL_USER || process.env.EMAIL_USER;
+  const gmailUser = readEnv("GMAIL_USER") || readEnv("EMAIL_USER");
   const gmailPassword =
-    process.env.GMAIL_APP_PASSWORD ||
-    process.env.GMAIL_PASS ||
-    process.env.EMAIL_PASS;
+    readEnv("GMAIL_APP_PASSWORD") ||
+    readEnv("GMAIL_PASS") ||
+    readEnv("EMAIL_PASS");
 
   if (!gmailUser || !gmailPassword) {
     if (!emailConfigWarned) {
@@ -241,8 +258,8 @@ async function ensureTransportReady() {
       const provider = resolveEmailProvider();
       const verifiedUser =
         provider === "sendgrid"
-          ? process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_FROM
-          : process.env.GMAIL_USER || process.env.EMAIL_USER;
+          ? readEnv("SENDGRID_FROM_EMAIL") || readEnv("EMAIL_FROM")
+          : readEnv("GMAIL_USER") || readEnv("EMAIL_USER");
       console.log(`[email] ${provider} service verified for ${verifiedUser}`);
     } catch (error) {
       const isAuthFailure =

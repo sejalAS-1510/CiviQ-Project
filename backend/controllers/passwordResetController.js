@@ -5,6 +5,21 @@ const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const emailService = require("../services/emailService");
 
+function sanitizeEnvString(value) {
+  if (value === undefined || value === null) return "";
+  const normalized = String(value).trim();
+  const hasDoubleQuotes =
+    normalized.startsWith('"') && normalized.endsWith('"');
+  const hasSingleQuotes =
+    normalized.startsWith("'") && normalized.endsWith("'");
+
+  if ((hasDoubleQuotes || hasSingleQuotes) && normalized.length >= 2) {
+    return normalized.slice(1, -1).trim();
+  }
+
+  return normalized;
+}
+
 // @desc    Request password reset email
 // @route   POST /api/users/forgot-password
 // @access  Public
@@ -46,11 +61,17 @@ exports.forgotPassword = async (req, res) => {
 
     // Build reset URL with the RAW token (not hashed)
     const frontendUrl =
-      req.headers.origin || process.env.FRONTEND_URL || "http://localhost:8080";
+      sanitizeEnvString(req.headers.origin) ||
+      sanitizeEnvString(process.env.FRONTEND_URL) ||
+      "http://localhost:8080";
     const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}&email=${encodeURIComponent(user.email)}`;
 
-    // Send email using your existing emailService
-    await emailService.sendPasswordResetEmail(user, resetUrl);
+    // Send email using your existing emailService and log the result for deployment diagnostics
+    const emailResult = await emailService.sendPasswordResetEmail(
+      user,
+      resetUrl,
+    );
+    console.log("[passwordReset] sendPasswordResetEmail result:", emailResult);
 
     return res.status(200).json({
       success: true,
@@ -72,21 +93,17 @@ exports.resetPassword = async (req, res) => {
     const { token, email, newPassword } = req.body;
 
     if (!token || !email || !newPassword) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Token, email and new password are required.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Token, email and new password are required.",
+      });
     }
 
     if (newPassword.length < 6) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Password must be at least 6 characters.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters.",
+      });
     }
 
     // Hash the incoming token to compare with stored hash
