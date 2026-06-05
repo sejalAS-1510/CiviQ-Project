@@ -37,11 +37,14 @@ cp backend/.env.example backend/.env
 ### 3. Update .env with Email Configuration
 
 ```env
+EMAIL_PROVIDER=gmail
 GMAIL_USER=your-email@gmail.com
 GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx  # 16-char password from step 1
 
 FRONTEND_URL=http://localhost:3000
 ```
+
+If you need compatibility with older env files, `GMAIL_PASS` is also accepted, but `GMAIL_APP_PASSWORD` is the preferred variable.
 
 ### 4. Test the Email Service
 

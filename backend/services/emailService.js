@@ -78,9 +78,18 @@ function resolveEmailProvider() {
   if (configuredProvider === "brevo") return "brevo";
   if (configuredProvider === "gmail") return "gmail";
 
+  if (
+    readEnv("GMAIL_USER") &&
+    (readEnv("GMAIL_APP_PASSWORD") || readEnv("GMAIL_PASS") || readEnv("EMAIL_PASS"))
+  ) {
+    return "gmail";
+  }
+
   if (readEnv("SENDGRID_API_KEY")) return "sendgrid";
 
-  return "brevo"; // safe default for you
+  if (readEnv("EMAIL_USER") && readEnv("EMAIL_PASS")) return "brevo";
+
+  return "gmail";
 }
 
 function getFromAddress() {
@@ -227,6 +236,54 @@ function initializeTransporter() {
   }
 
   // ----------------------------
+  // GMAIL SMTP MODE
+  // ----------------------------
+  if (emailProvider === "gmail") {
+    const gmailUser = readEnv("GMAIL_USER") || readEnv("EMAIL_USER");
+    const gmailPass =
+      readEnv("GMAIL_APP_PASSWORD") || readEnv("GMAIL_PASS") || readEnv("EMAIL_PASS");
+
+    console.log(
+      `[email] Gmail config: user=${gmailUser || "(missing)"}, pass=${gmailPass ? "set" : "missing"}`,
+    );
+
+    if (!gmailUser || !gmailPass) {
+      if (!emailConfigWarned) {
+        console.warn(
+          "[email] Gmail SMTP not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD (or GMAIL_PASS) in env",
+        );
+        emailConfigWarned = true;
+      }
+      emailServiceDisabledReason = "gmail-not-configured";
+      return null;
+    }
+
+    console.log(`[email] Creating Gmail SMTP transport`);
+
+    transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      auth: {
+        user: gmailUser,
+        pass: gmailPass,
+      },
+      connectionTimeout: 20000,
+      greetingTimeout: 20000,
+      socketTimeout: 20000,
+      requireTLS: true,
+      tls: {
+        rejectUnauthorized: false,
+      },
+      logger: false,
+      debug: false,
+    });
+
+    console.log(`[email] Gmail transport created successfully`);
+    return transporter;
+  }
+
+  // ----------------------------
   // BREVO SMTP MODE (FIXED & STABLE)
   // ----------------------------
   if (emailProvider === "brevo") {
@@ -288,40 +345,24 @@ function initializeTransporter() {
   console.warn(`[email] No valid email provider configured`);
   return null;
 }
-  // ----------------------------
-  // DEFAULT FALLBACK (SAFETY)
-  // ----------------------------
-  console.warn(`[email] Unknown provider. Falling back to Brevo SMTP`);
-
-  transporter = nodemailer.createTransport({
-    host: "smtp-relay.brevo.com",
-    port: 587,
-    secure: false,
-    auth: {
-      user: readEnv("EMAIL_USER"),
-      pass: readEnv("EMAIL_PASS"),
-    },
-    connectionTimeout: 60000,
-    greetingTimeout: 60000,
-    socketTimeout: 60000,
-    requireTLS: true,
-    tls: {
-      rejectUnauthorized: false,
-    },
-    logger: true,
-    debug: true,
-  });
-
-  return transporter;
-}
 
 async function ensureTransportReady() {
   const transport = initializeTransporter();
   if (!transport) return null;
 
-  // Skip verify for Gmail on Render free tier
   if (!transporterVerified) {
-    transporterVerified = true;
+    try {
+      await transport.verify();
+      transporterVerified = true;
+    } catch (error) {
+      console.warn(
+        `[email] transport verification failed for ${resolveEmailProvider()}: ${error.message}`,
+      );
+      if (resolveEmailProvider() === "gmail" && isRetryableError(error)) {
+        return transport;
+      }
+      throw error;
+    }
 
     const provider = resolveEmailProvider();
     const verifiedUser =

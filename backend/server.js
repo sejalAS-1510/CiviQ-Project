@@ -114,9 +114,18 @@ const readEnv = (name) => {
   }
   return value;
 };
+const hasGmailCredentials =
+  readEnv("GMAIL_USER") &&
+  (readEnv("GMAIL_APP_PASSWORD") || readEnv("GMAIL_PASS") || readEnv("EMAIL_PASS"));
 const emailProvider =
   readEnv("EMAIL_PROVIDER") ||
-  (readEnv("SENDGRID_API_KEY") ? "sendgrid" : "gmail");
+  (hasGmailCredentials
+    ? "gmail"
+    : readEnv("SENDGRID_API_KEY")
+      ? "sendgrid"
+      : readEnv("EMAIL_USER") && readEnv("EMAIL_PASS")
+        ? "brevo"
+        : "gmail");
 const gmailUser = readEnv("GMAIL_USER") || readEnv("EMAIL_USER");
 const gmailPassword =
   readEnv("GMAIL_APP_PASSWORD") ||
