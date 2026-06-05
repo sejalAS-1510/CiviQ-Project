@@ -80,14 +80,31 @@ Example `.env` keys (placeholders are in `backend/.env.example`):
 ```
 MONGODB_URI=mongodb+srv://<user>:<password>@cluster0.mongodb.net/civiq?retryWrites=true&w=majority
 JWT_SECRET=replace_with_random_secret
-EMAIL_PROVIDER=sendgrid # or gmail
+
+# Gmail (Nodemailer)
+EMAIL_PROVIDER=gmail
+GMAIL_USER=your-email@gmail.com
+GMAIL_APP_PASSWORD=your_16_character_app_password
+
+# SendGrid (alternative)
+EMAIL_PROVIDER=sendgrid
 SENDGRID_API_KEY=replace_with_sendgrid_api_key
 SENDGRID_FROM_EMAIL=verified-sender@example.com
+
 # FRONTEND_URL: for Vite dev server use http://localhost:5173
 # If you run the app in single-URL mode (backend serves frontend), set http://localhost:8080
 # If frontend is deployed separately (e.g. Vercel), set your live frontend URL here
 FRONTEND_URL=http://localhost:5173
 ```
+
+**Gmail (Nodemailer) setup - step-by-step**
+
+1. Enable Google 2-Step Verification for the Gmail account.
+2. Create a Gmail **App Password** (https://myaccount.google.com/apppasswords) and copy the 16-character value (no spaces).
+3. Put `EMAIL_PROVIDER=gmail`, `GMAIL_USER`, and `GMAIL_APP_PASSWORD` into `backend/.env`.
+4. Start the backend and test with `POST /test-email` (body: `{ "to": "you@example.com" }`) or trigger a real notification by creating a complaint with `autoAssign: true`.
+
+Full details and troubleshooting live in `backend/EMAIL_SERVICE_README.md`.
 
 **API & file locations**
 
