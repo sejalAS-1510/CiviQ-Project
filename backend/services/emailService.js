@@ -266,6 +266,7 @@ function initializeTransporter() {
       host: "smtp.gmail.com",
       port: 587,
       secure: false,
+      family: 4, // Force IPv4 to prevent connect ENETUNREACH on Render
       auth: {
         user: gmailUser,
         pass: gmailPass,
@@ -313,6 +314,7 @@ function initializeTransporter() {
       host: "smtp-relay.brevo.com",
       port: 587,
       secure: false, // STARTTLS
+      family: 4, // Force IPv4 to prevent connect ENETUNREACH on Render
 
       auth: {
         user: emailUser,
