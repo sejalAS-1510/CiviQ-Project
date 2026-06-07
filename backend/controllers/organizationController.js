@@ -1,3 +1,5 @@
+const Organization = require("../models/Organization");
+
 // @desc    Create a new organization
 // @route   POST /api/organizations
 // @access  Public (can restrict to admin/user if needed)
@@ -22,7 +24,7 @@ exports.createOrganization = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
-const Organization = require("../models/Organization");
+
 
 // @desc    Get all organizations
 // @route   GET /api/organizations

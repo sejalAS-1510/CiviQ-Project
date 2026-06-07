@@ -23,7 +23,7 @@ const frontendIndexPath = path.join(frontendDistPath, "index.html");
 // Add your Vercel domains here OR use env variable
 const allowedOrigins = (
   process.env.CORS_ALLOWED_ORIGINS ||
-  "https://civiq-omega.vercel.app,https://civiq-git-main-sejalas-1510s-projects.vercel.app"
+  "https://civiq-omega.vercel.app,https://civiq-git-main-sejalas-1510s-projects.vercel.app,https://civiqproject.vercel.app"
 )
   .split(",")
   .map((o) => o.trim());

@@ -240,8 +240,10 @@ function initializeTransporter() {
   // ----------------------------
   if (emailProvider === "gmail") {
     const gmailUser = readEnv("GMAIL_USER") || readEnv("EMAIL_USER");
-    const gmailPass =
+    const rawGmailPass =
       readEnv("GMAIL_APP_PASSWORD") || readEnv("GMAIL_PASS") || readEnv("EMAIL_PASS");
+    // Sanitize by removing spaces from Gmail App Password if they exist
+    const gmailPass = rawGmailPass ? rawGmailPass.replace(/\s+/g, "") : "";
 
     console.log(
       `[email] Gmail config: user=${gmailUser || "(missing)"}, pass=${gmailPass ? "set" : "missing"}`,
