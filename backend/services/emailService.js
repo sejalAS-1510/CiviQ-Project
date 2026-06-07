@@ -1,3 +1,8 @@
+const dns = require("dns");
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
+
 const EMAIL_HARD_FAIL = false; // IMPORTANT: submission mode
 
 const nodemailer = require("nodemailer");
