@@ -28,15 +28,20 @@ const allowedOrigins = (
   .split(",")
   .map((o) => o.trim());
 
-// Allow localhost for development
+// Allow localhost for development and any Vercel domain
 const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+const vercelRegex = /\.vercel\.app$/;
 
 app.use(
   cors({
     origin: function (origin, callback) {
       if (!origin) return callback(null, true); // allow Postman / mobile
 
-      if (allowedOrigins.includes(origin) || localhostRegex.test(origin)) {
+      if (
+        allowedOrigins.includes(origin) ||
+        localhostRegex.test(origin) ||
+        vercelRegex.test(origin)
+      ) {
         return callback(null, true);
       }
 
