@@ -80,6 +80,7 @@ function resolveEmailProvider() {
   const configuredProvider = readEnv("EMAIL_PROVIDER").toLowerCase();
 
   if (configuredProvider === "sendgrid") return "sendgrid";
+  if (configuredProvider === "brevo_api" || configuredProvider === "brevo-api") return "brevo_api";
   if (configuredProvider === "brevo") return "brevo";
   if (configuredProvider === "gmail") return "gmail";
 
@@ -91,6 +92,7 @@ function resolveEmailProvider() {
   }
 
   if (readEnv("SENDGRID_API_KEY")) return "sendgrid";
+  if (readEnv("BREVO_API_KEY")) return "brevo_api";
 
   if (readEnv("EMAIL_USER") && readEnv("EMAIL_PASS")) return "brevo";
 
@@ -178,17 +180,27 @@ function createSendGridClient() {
     provider: "sendgrid",
     verify: async () => true,
     sendMail: async (mailOptions) => {
-      const [response] = await sendgridMail.send(
-        buildSendGridMessage(mailOptions),
-      );
-      return {
-        accepted: [mailOptions.to],
-        rejected: [],
-        messageId:
-          response?.headers?.["x-message-id"] ||
-          response?.headers?.["x-sg-message-id"] ||
-          response?.headers?.["X-Message-Id"],
-      };
+      try {
+        const [response] = await sendgridMail.send(
+          buildSendGridMessage(mailOptions),
+        );
+        return {
+          accepted: [mailOptions.to],
+          rejected: [],
+          messageId:
+            response?.headers?.["x-message-id"] ||
+            response?.headers?.["x-sg-message-id"] ||
+            response?.headers?.["X-Message-Id"],
+        };
+      } catch (error) {
+        if (error.response?.body) {
+          console.error(
+            "[email] SendGrid API error details:",
+            JSON.stringify(error.response.body, null, 2)
+          );
+        }
+        throw error;
+      }
     },
   };
 }
@@ -237,6 +249,92 @@ function initializeTransporter() {
   if (emailProvider === "sendgrid") {
     transporter = createSendGridClient();
     console.log(`[email] initializeTransporter: sendgrid client created`);
+    return transporter;
+  }
+
+  // ----------------------------
+  // BREVO API MODE (SMTP-free Port 443 HTTPS)
+  // ----------------------------
+  if (emailProvider === "brevo_api") {
+    const apiKey = readEnv("BREVO_API_KEY");
+    const fromEmail = readEnv("BREVO_FROM_EMAIL") || readEnv("EMAIL_FROM") || readEnv("GMAIL_USER") || "no-reply@localhost";
+    const fromName = readEnv("BREVO_FROM_NAME") || "CiviQ Support";
+
+    if (!apiKey) {
+      if (!emailConfigWarned) {
+        console.warn("[email] Brevo API not configured. Set BREVO_API_KEY in env");
+        emailConfigWarned = true;
+      }
+      emailServiceDisabledReason = "brevo-api-not-configured";
+      return null;
+    }
+
+    transporter = {
+      provider: "brevo_api",
+      verify: async () => true,
+      sendMail: async (mailOptions) => {
+        try {
+          const senderEmail = fromEmail.includes("<") 
+            ? fromEmail.split("<")[1].replace(">", "").trim()
+            : fromEmail.trim();
+
+          const payload = {
+            sender: {
+              name: fromName,
+              email: senderEmail
+            },
+            to: [{
+              email: mailOptions.to,
+              name: mailOptions.to.split("@")[0]
+            }],
+            subject: mailOptions.subject,
+            htmlContent: mailOptions.html
+          };
+
+          // Handle attachments if present
+          if (mailOptions.attachments && mailOptions.attachments.length > 0) {
+            payload.attachment = mailOptions.attachments.map(att => {
+              let content = att.content;
+              if (Buffer.isBuffer(content)) {
+                content = content.toString("base64");
+              } else if (typeof content === "string") {
+                content = Buffer.from(content).toString("base64");
+              }
+              return {
+                name: att.filename,
+                content: content
+              };
+            }).filter(Boolean);
+          }
+
+          const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+            method: "POST",
+            headers: {
+              "api-key": apiKey,
+              "content-type": "application/json",
+              "accept": "application/json"
+            },
+            body: JSON.stringify(payload)
+          });
+
+          const data = await response.json();
+          if (response.ok) {
+            return {
+              accepted: [mailOptions.to],
+              rejected: [],
+              messageId: data.messageId
+            };
+          } else {
+            console.error("[email] Brevo API error:", JSON.stringify(data, null, 2));
+            throw new Error(data.message || "Failed to send email via Brevo API");
+          }
+        } catch (error) {
+          console.error("[email] Brevo API exception:", error.message);
+          throw error;
+        }
+      }
+    };
+    console.log(`[email] initializeTransporter: brevo_api client created`);
     return transporter;
   }
 
