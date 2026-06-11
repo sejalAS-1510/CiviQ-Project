@@ -1,124 +1,226 @@
 # CiviQ — Community Issue Management System
 
-CiviQ is a lightweight, production-ready system for reporting, tracking, and resolving community issues with automated classification, technician assignment, notifications, and reporting.
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+[![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)](https://reactjs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=flat&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 
-**Project overview**
+CiviQ is a production-ready, full-stack platform designed to automate, track, and optimize the lifecycle of community and municipal complaints. By bridging the gap between residents and service technicians, CiviQ eliminates administrative overhead through **automated issue classification**, **constraint-based technician assignment**, **real-time lifecycle updates**, and **automated audit reporting**.
 
-CiviQ streamlines citizen issue reporting and operations for communities and building managers. Residents report problems (plumbing, electrical, cleaning, security, infrastructure, noise), technicians are auto-selected using a configurable matching algorithm, and admins get centralized visibility, notifications, and exportable reports.
+🔗 **Live Application URL**: [https://civiqproject.vercel.app/](https://civiqproject.vercel.app/)
 
-**Why this matters**
+---
 
-- Reduces manual triage by automating classification and assignment.
-- Centralizes communication with notifications and email for faster resolution.
-- Tracks lifecycle and ratings to surface technician performance and trends.
+## 📖 Project Origins & Engineering Focus
 
-**Key features**
+### Why did I build this?
 
-- Role-based access: resident, technician, admin
-- Complaint reporting: category, description, location, optional image
-- Automatic classification and optional auto-assignment to technicians
-- Technician decision flow: accept / reject / reschedule
-- Complaint lifecycle: Pending → In Progress → Resolved → Closed
-- Notifications (in-app) and email alerts (SendGrid/Gmail) for key events
-- Technician ratings and feedback history
-- Excel report generation per complaint (attachment-ready)
-- Background scheduler for reminders
+In community management and public municipalities, resolving maintenance issues is plagued by two main bottlenecks:
 
-**Tech stack**
+1. **Manual Triage Delay**: Sorting through dozens of daily complaints (plumbing, electrical, cleaning, structural) and manually assigning them to available specialists is slow and error-prone.
+2. **Communication Silos**: Residents are left in the dark about progress, and technicians lack real-time scheduling controls, resulting in delayed resolutions and dropped tickets.
 
-- Backend: Node.js, Express, MongoDB (Mongoose), JWT, bcrypt
-- Frontend: React + TypeScript, Vite, Tailwind CSS, shadcn-ui, Zustand
-- Email: SendGrid or Gmail via Nodemailer
-- Other: Multer (uploads), node-cron (scheduler), ExcelJS (reports)
+I engineered **CiviQ** to serve as a self-optimizing system that automates the dispatching pipeline from submission to resolution, reducing ticket resolution latency and removing manual administrative triage entirely.
 
-**Architecture & workflow (brief)**
+### What exactly did I build?
 
-Residents log in, submit an issue via the UI, and optionally upload an image. The server classifies the complaint, creates a DB record, optionally auto-assigns a technician, and triggers notification + email flows. Technicians update status or respond; admins manage users and reports. A scheduler sends reminder emails for pending assigned tasks.
+I built the entire core full-stack application, designing and implementing:
 
-**Live demo**
+- **The Scoring & Assignment Engine**: A multi-criteria matching algorithm that scores candidates based on workload, historic resolution rates, experience, category matching, and recent assignment frequency to avoid overloading.
+- **Keyword-Based Classification Pipeline**: A regex/keyword parser that scores descriptions to identify categories and specializations with variable confidence scores (`high`, `medium`, `low`).
+- **Secure REST API**: A secure Node.js & Express API backend utilizing JSON Web Tokens (JWT), custom role authentication (Resident, Technician, Admin), and secure hashing.
+- **Robust Multi-Provider Mailer**: An email dispatcher supporting standard SMTP (Gmail/Brevo), SendGrid, and a custom **SMTP-Free Brevo HTTPS Client** (via Port 443) designed to bypass outbound port-blocking on containerized hosting tiers (like Render's Free tier).
+- **Interactive React Interface**: A responsive dashboard built with TypeScript, Vite, Tailwind CSS, and `shadcn/ui`, utilizing `Zustand` for lightweight state management.
 
-public demo URL: https://civiq-omega.vercel.app/
+---
 
-**Quick setup (developer)**
+## 🛠️ Technology Stack
 
-1. Clone the repo
+| Layer            | Technologies                                                            |
+| :--------------- | :---------------------------------------------------------------------- |
+| **Frontend**     | React, TypeScript, Vite, Tailwind CSS, shadcn/ui, Zustand, Lucide React |
+| **Backend**      | Node.js, Express, Multer (file uploads), node-cron (scheduler)          |
+| **Database**     | MongoDB, Mongoose ODM                                                   |
+| **Testing**      | Playwright (E2E), Vitest (Unit)                                         |
+| **Integrations** | Brevo API (HTTP Client), Nodemailer (Gmail/SMTP), SendGrid, ExcelJS     |
 
-```bash
-# HTTPS (recommended for recruiters)
-git clone https://github.com/SejalAS-1510/CiviQ.git
+---
 
-# OR (SSH) — for contributors with SSH keys configured
-# git clone git@github.com:<your-org-or-username>/civiq.git
+## ⚙️ Architecture & Logic Flows
 
-cd CiviQ
+### 1. Complaint State Machine Lifecycle
+
+Complaints traverse a strict state machine to prevent inconsistent lifecycle transitions:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending : Citizen Submits Complaint
+    Pending --> In_Progress : Technician Accepts / Admin Assigns
+    Pending --> Pending : Technician Rejects (Auto-reassigned)
+    In_Progress --> Resolved : Technician Submits Fix Details
+    Resolved --> Closed : Citizen/Admin Closes & Rates Fix
+    Closed --> [*]
 ```
 
-2. Install & run (root script starts both servers)
+---
+
+### 2. Automated Assignment Scoring Algorithm
+
+When a complaint is classified, the system evaluates all active technicians in the organization using a weighted scoring model:
+
+$$Score = (Workload \times 30\%) + (Experience \times 20\%) + (ResolutionSpeed \times 15\%) + (SkillMatch \times 25\%) + (SpecBonus \times 10\%) + PriorityBonus - RecentPenalty$$
+
+```mermaid
+flowchart TD
+    A[New Complaint Submitted] --> B[Classify Category & Specialization]
+    B --> C{Any Available Techs in Org?}
+    C -- Yes --> D[Fetch Technicians & Workload Stats]
+    C -- No --> E[Fallback: Fetch Cross-Org Technicians]
+    E --> D
+    D --> F[Calculate Composite Weight Score for each Candidate]
+    F --> G[Apply Recent-Assignment Cooling Penalty]
+    G --> H[Select Highest Scored Technician]
+    H --> I[Assign Complaint & Send Real-Time Notifications]
+```
+
+---
+
+## 🌟 Key Features & Role-Based Workflows
+
+### 👤 Citizen (Resident) Experience
+
+- **Frictionless Reporting**: Report issues with description, location, category suggestions, and image uploads (Multer-managed local file storage).
+- **Real-time Timeline**: Track live ticket status updates (Pending → In Progress → Resolved → Closed).
+- **Technician Rating**: Rate technician performance (1–5 stars) with textual feedback.
+- **Verification Alerts**: Receive automated email receipts and password reset links.
+
+### 🔧 Technician Portal
+
+- **Assignment Alerts**: Immediate in-app and email notifications upon ticket assignment.
+- **Workplace Controls**: Accept, reject (triggering auto-reassignment to next-best technician), or reschedule tickets with custom notes.
+- **Actionable Resolutions**: Add detailed fix logs when marking tickets as resolved.
+
+### 👑 Administrator Control Center
+
+- **Operational Dashboard**: Review key stats (active tickets, pending approvals, average resolution time, organization-wide satisfaction ratings).
+- **Manual Overrides**: Reassign tickets manually, override automated categories, or suspend inactive accounts.
+- **Audit Logging**: Generate structured, styling-preserved Excel spreadsheets via **ExcelJS** detailing individual complaint metrics, ready for download or automated email attachments.
+- **Organizations**: Support multi-tenant organization creation where users belong to a distinct workspace/community.
+
+---
+
+## 🔌 API Route Directory
+
+### Authentication & Users (`/api/users`)
+
+- `POST /api/users/register` - Create resident, technician, or admin.
+- `POST /api/users/login` - Authenticate user & retrieve JWT token.
+- `GET /api/users/me` - Fetch profile details of logged-in user.
+- `PUT /api/users/profile` - Update profile, specialization, or availability.
+- `POST /api/users/forgot-password` - Request a password reset email token.
+- `POST /api/users/reset-password/:token` - Set new password using token.
+
+### Complaints (`/api/complaints`)
+
+- `POST /api/complaints` - Create a complaint (supports `multipart/form-data` for image attachments).
+- `GET /api/complaints` - List complaints filtered by role, status, priority, or category.
+- `GET /api/complaints/:id` - Fetch detailed complaint and rating history.
+- `PUT /api/complaints/:id` - Update status, priority, category, or manually assign.
+- `POST /api/complaints/:id/decision` - Accept, reject, or reschedule an assigned complaint (Technician only).
+- `POST /api/complaints/:id/rate` - Submit a review rating and feedback.
+- `GET /api/complaints/:id/report` - Generate and download the Excel audit sheet.
+
+### Notifications & System (`/api/notifications` & `/api/organizations`)
+
+- `GET /api/notifications` - Retrieve in-app alerts for the current user.
+- `PUT /api/notifications/mark-read` - Mark all notifications as read.
+- `POST /api/organizations` - Create a new community organization partition.
+
+---
+
+## 🚀 Quick Start & Installation
+
+### 1. Prerequisites
+
+- Node.js (v18+)
+- MongoDB (local daemon or Atlas cluster)
+
+### 2. Clone and Install Dependencies
 
 ```bash
-# Install dependencies for root (frontend/backend handled by scripts)
+git clone https://github.com/SejalAS-1510/CiviQ-Project.git
+cd CiviQ-Project
 npm install
-
-# Start both frontend and backend in development
-npm run dev
-
-# Or run single-URL mode (builds frontend and serves from backend)
-npm run dev:single
 ```
 
-3. Backend env
+### 3. Setup Environment Variables
 
-Copy the example and create a local `.env` (do not commit real secrets):
+Create a `.env` file in the `backend/` directory:
 
 ```bash
 cp backend/.env.example backend/.env
-# then edit backend/.env with your real values
 ```
 
-Example `.env` keys (placeholders are in `backend/.env.example`):
+Fill out the variables inside `backend/.env`:
 
-```
-MONGODB_URI=mongodb+srv://<user>:<password>@cluster0.mongodb.net/civiq?retryWrites=true&w=majority
-JWT_SECRET=replace_with_random_secret
-
-# Gmail (Nodemailer)
-EMAIL_PROVIDER=gmail
-GMAIL_USER=your-email@gmail.com
-GMAIL_APP_PASSWORD=your_16_character_app_password
-
-# SendGrid (alternative)
-EMAIL_PROVIDER=sendgrid
-SENDGRID_API_KEY=replace_with_sendgrid_api_key
-SENDGRID_FROM_EMAIL=verified-sender@example.com
-
-# FRONTEND_URL: for Vite dev server use http://localhost:5173
-# If you run the app in single-URL mode (backend serves frontend), set http://localhost:8080
-# If frontend is deployed separately (e.g. Vercel), set your live frontend URL here
+```env
+PORT=5000
+MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/civiq
+JWT_SECRET=your_super_secret_jwt_key
 FRONTEND_URL=http://localhost:5173
+
+# ==================== EMAIL CONFIGURATION ====================
+# Options: gmail, sendgrid, brevo_api, brevo (SMTP)
+EMAIL_PROVIDER=brevo_api
+
+# If using 'brevo_api' (Recommended for Cloud Hosting - SMTP-free)
+BREVO_API_KEY=xkeysib-your_brevo_api_key_here
+BREVO_FROM_EMAIL=your-verified-sender@gmail.com
+BREVO_FROM_NAME="CiviQ Notifications"
+
+# If using 'gmail' (Nodemailer SMTP)
+GMAIL_USER=your-email@gmail.com
+GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
-**Gmail (Nodemailer) setup - step-by-step**
+### 4. Running the Application
 
-1. Enable Google 2-Step Verification for the Gmail account.
-2. Create a Gmail **App Password** (https://myaccount.google.com/apppasswords) and copy the 16-character value (no spaces).
-3. Put `EMAIL_PROVIDER=gmail`, `GMAIL_USER`, and `GMAIL_APP_PASSWORD` into `backend/.env`.
-4. Start the backend and test with `POST /test-email` (body: `{ "to": "you@example.com" }`) or trigger a real notification by creating a complaint with `autoAssign: true`.
+The project includes a root script to launch both frontend and backend concurrently in development:
 
-Full details and troubleshooting live in `backend/EMAIL_SERVICE_README.md`.
-
-**API & file locations**
-
-- Backend server: `backend/server.js`
-- API routes: `backend/routes/*`
-- Frontend app: `frontend/src/` (entry: `frontend/src/main.tsx` and `frontend/src/App.tsx`)
-
-**Notes for evaluators**
-
-- The repository includes a simple feature audit script: `scripts/feature-audit.js` that performs basic end-to-end API checks.
-- Auto-assignment logic lives in `backend/services/technicianAssigner.js` and complaint classification in `backend/services/categoryDetector.js`.
-
-**Contributing & license**
-
-Contributions welcome — fork, branch, and open a pull request. Licensed under ISC (see project root `package.json`).
+- **Development Split Mode** (React served on Vite port `5173`, Express on port `5000`):
+  ```bash
+  npm run dev
+  ```
+- **Production Single-URL Mode** (Builds frontend and hosts it directly from the Express backend port `8080` / `5000`):
+  ```bash
+  npm run dev:single
+  ```
 
 ---
+
+## 📦 Production Delivery & Bypass of SMTP Blocking
+
+In containerized cloud platforms (such as Render's Free tier), outbound connections on standard SMTP ports (`25`, `465`, `587`) are blocked by security firewalls.
+To bypass this limitation and guarantee reliable email delivery, I implemented the `brevo_api` mode:
+
+- Instead of initiating an SMTP transport handshake, the server routes transactional email payloads over HTTPS (Port `443`) via Brevo's REST API endpoint: `POST https://api.brevo.com/v3/smtp/email`.
+- This ensures 100% notification delivery (including Excel attachment buffers generated on-the-fly) without requiring firewall modifications or port permissions.
+
+---
+
+## 🧪 Testing & Verification
+
+You can audit the integrity of backend routes, classification engines, and notification logic using the built-in end-to-end API checklist script:
+
+```bash
+node scripts/feature-audit.js
+```
+
+This script runs mock registrations, submits complaints, asserts category auto-detection scores, handles assignments, and prints a summary.
+
+---
+
+## 📝 License
+
+Licensed under the [ISC License](file:///C:/Sejal/SY/CiviQ-Project/package.json). Developed by Sejal Anil Shinkar.
