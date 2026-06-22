@@ -203,7 +203,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/organizations", organizationRoutes);
 
 // ====================== SPA FALLBACK ======================
-app.get(/^\/(?!api\/).*/, (req, res, next) => {
+app.get(/^\/(?!(api|uploads|assets)\/).*/, (req, res, next) => {
   if (fs.existsSync(frontendIndexPath)) {
     return res.sendFile(frontendIndexPath);
   }
