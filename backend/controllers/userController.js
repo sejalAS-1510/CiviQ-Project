@@ -242,6 +242,7 @@ exports.getProfile = async (req, res) => {
           specializations: user.specializations,
           ownerId: user.ownerId,
           isActive: user.isActive,
+          avatar: user.avatar,
           lastLogin: user.lastLogin,
           createdAt: user.createdAt,
         },
@@ -335,6 +336,7 @@ exports.updateProfile = async (req, res) => {
           specialization: updatedUser.specialization,
           specializations: updatedUser.specializations,
           ownerId: updatedUser.ownerId,
+          avatar: updatedUser.avatar,
           token: generateToken(updatedUser._id),
         },
       });

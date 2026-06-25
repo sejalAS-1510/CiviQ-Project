@@ -141,7 +141,14 @@ exports.createComplaint = async (req, res) => {
 
     // Handle file upload if present
     if (req.file) {
-      complaintData.images = [`/uploads/issue-images/${req.file.filename}`];
+      const fs = require("fs");
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const mimeType = req.file.mimetype;
+      const base64Image = `data:${mimeType};base64,${fileBuffer.toString("base64")}`;
+      complaintData.images = [base64Image];
+      
+      // Clean up local temp file since it is now converted to base64
+      fs.unlinkSync(req.file.path);
     }
 
     // If admin is reporting and provided resident info, save it
@@ -306,16 +313,8 @@ exports.createComplaint = async (req, res) => {
     // If there was an error and a file was uploaded, clean it up
     if (req.file) {
       const fs = require("fs");
-      const path = require("path");
-      const filePath = path.join(
-        __dirname,
-        "..",
-        "uploads",
-        "issue-images",
-        req.file.filename,
-      );
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
       }
     }
 
